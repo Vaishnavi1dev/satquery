@@ -1,0 +1,32 @@
+system:
+  name: "SatQuery AI"
+  version: "1.0.0"
+  environment: "development"
+  log_level: "INFO"
+
+runtime:
+  mode: "simulation"  # "simulation" (high-fidelity local engine) or "real" (loads HF checkpoints)
+  device: "auto"      # "auto", "cuda", "cpu"
+  vram_budget_gb: 16.0
+  quantization: "int8" # "int8", "int4", "bf16", "fp32"
+  fallback_to_cpu: true
+  deterministic: true
+  random_seed: 42
+  timeout_seconds: 60
+
+storage:
+  root_dir: "sessions"
+  max_sessions: 100
+  max_storage_gb: 10.0
+  artifact_cleanup_hours: 24
+
+model_store:
+  weights_dir: "models"
+  earthdial_model_path: "models/earthdial"
+  dofa_model_path: "models/dofa"
+  deltavlm_model_path: "models/deltavlm"
+
+reports:
+  output_format: "html"
+  include_overlays: true
+  include_trace: true

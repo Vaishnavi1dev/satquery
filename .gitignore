@@ -1,0 +1,34 @@
+# Python & Virtual Environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Heavy Artifacts & Data (per Architecture & Implementation Plan)
+data/
+models/
+sessions/
+output/
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.tar.gz
+*.zip
+
+# Third-party cloned repositories (can be cloned on demand)
+third_party/
+
+# Logs & scratch
+*.log
+scratch/
+nohup.out

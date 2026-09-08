@@ -1,0 +1,62 @@
+sensors:
+  sentinel-2:
+    name: "Sentinel-2 MSI"
+    modality: "multispectral"
+    bands: ["B02", "B03", "B04", "B08", "B05", "B06", "B07", "B8A", "B11", "B12"]
+    wavelengths_um: [0.490, 0.560, 0.665, 0.842, 0.705, 0.740, 0.783, 0.865, 1.610, 2.190]
+    gsd_m: 10.0
+    composites:
+      rgb: ["B04", "B03", "B02"]
+      false_color: ["B08", "B04", "B03"]
+    scaling: "linear"
+    mean: [1353.7, 1117.2, 1041.8, 2265.4, 1545.9, 2199.7, 2410.3, 2464.4, 2079.1, 1487.6]
+    std: [652.5, 607.3, 674.6, 1032.5, 693.3, 853.2, 946.9, 982.5, 874.8, 778.6]
+
+  sentinel-1:
+    name: "Sentinel-1 SAR"
+    modality: "sar"
+    bands: ["VV", "VH"]
+    wavelengths_um: [0.056, 0.056]
+    gsd_m: 10.0
+    composites:
+      sar_dual: ["VV", "VH", "VV/VH"]
+    scaling: "db"
+    mean: [-12.5, -19.2]
+    std: [5.2, 5.8]
+
+  cartosat-2s:
+    name: "Cartosat-2S High Resolution Optical"
+    modality: "optical"
+    bands: ["Blue", "Green", "Red", "NIR"]
+    wavelengths_um: [0.485, 0.555, 0.650, 0.815]
+    gsd_m: 0.65
+    composites:
+      rgb: ["Red", "Green", "Blue"]
+      false_color: ["NIR", "Red", "Green"]
+    scaling: "linear"
+    mean: [120.0, 115.0, 110.0, 140.0]
+    std: [45.0, 42.0, 48.0, 55.0]
+
+  risat:
+    name: "RISAT Synthetic Aperture Radar"
+    modality: "sar"
+    bands: ["HH", "HV"]
+    wavelengths_um: [0.056, 0.056]
+    gsd_m: 1.0
+    composites:
+      sar_dual: ["HH", "HV", "HH/HV"]
+    scaling: "db"
+    mean: [-11.8, -18.5]
+    std: [4.9, 5.4]
+
+  benchmark-rgb:
+    name: "Standard Aerial / Benchmark RGB"
+    modality: "optical"
+    bands: ["R", "G", "B"]
+    wavelengths_um: [0.650, 0.550, 0.450]
+    gsd_m: 0.5
+    composites:
+      rgb: ["R", "G", "B"]
+    scaling: "linear"
+    mean: [123.675, 116.28, 103.53]
+    std: [58.395, 57.12, 57.375]

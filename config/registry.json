@@ -1,0 +1,108 @@
+{
+  "registry_version": "1.0.0",
+  "updated_at": "2026-09-08T00:00:00Z",
+  "tools": [
+    {
+      "name": "rs-vqa",
+      "version": "1.0.0",
+      "model_key": "earthdial-4b",
+      "model_name": "EarthDial-4B (Model A)",
+      "backbone": "InternVL2-4B (Phi-3-mini LLM) + Band-Fusion",
+      "task": "vqa",
+      "slot": "S1",
+      "resource_class": "earthdial",
+      "load_group": "llm_primary",
+      "supported_modalities": ["optical", "multispectral", "sar"],
+      "input_count": 1,
+      "requires_coregistration": false,
+      "permitted_params": {
+        "max_new_tokens": {"type": "int", "default": 256, "min": 1, "max": 1024},
+        "temperature": {"type": "float", "default": 0.0, "min": 0.0, "max": 1.0},
+        "do_sample": {"type": "bool", "default": false}
+      },
+      "enabled": true,
+      "description": "Single-image visual question answering for optical, multispectral, and SAR remote sensing imagery."
+    },
+    {
+      "name": "rs-caption",
+      "version": "1.0.0",
+      "model_key": "earthdial-4b",
+      "model_name": "EarthDial-4B (Model A)",
+      "backbone": "InternVL2-4B (Phi-3-mini LLM) + Band-Fusion",
+      "task": "caption",
+      "slot": "S2",
+      "resource_class": "earthdial",
+      "load_group": "llm_primary",
+      "supported_modalities": ["optical", "multispectral", "sar"],
+      "input_count": 1,
+      "requires_coregistration": false,
+      "permitted_params": {
+        "max_new_tokens": {"type": "int", "default": 128, "min": 1, "max": 512},
+        "temperature": {"type": "float", "default": 0.0, "min": 0.0, "max": 1.0}
+      },
+      "enabled": true,
+      "description": "Comprehensive natural language captioning and land-cover description for single remote sensing imagery."
+    },
+    {
+      "name": "rs-ground",
+      "version": "1.0.0",
+      "model_key": "earthdial-4b",
+      "model_name": "EarthDial-4B (Model A)",
+      "backbone": "InternVL2-4B (Phi-3-mini LLM) + Grounding Head",
+      "task": "grounding",
+      "slot": "S2",
+      "resource_class": "earthdial",
+      "load_group": "llm_primary",
+      "supported_modalities": ["optical", "multispectral", "sar"],
+      "input_count": 1,
+      "requires_coregistration": false,
+      "permitted_params": {
+        "max_new_tokens": {"type": "int", "default": 128, "min": 1, "max": 512},
+        "temperature": {"type": "float", "default": 0.0, "min": 0.0, "max": 1.0},
+        "confidence_threshold": {"type": "float", "default": 0.3, "min": 0.0, "max": 1.0}
+      },
+      "enabled": true,
+      "description": "Text-guided region grounding with honest bounding-box extraction or not_located fallback."
+    },
+    {
+      "name": "change-vqa",
+      "version": "1.0.0",
+      "model_key": "deltavlm-qwen",
+      "model_name": "DeltaVLM + Qwen3.5-2B (Model C)",
+      "backbone": "EVA-ViT-g/14 (Bi-VE) + CSRM + Q-former + Qwen3.5-2B",
+      "task": "change_vqa",
+      "slot": "S3",
+      "resource_class": "deltavlm",
+      "load_group": "llm_secondary",
+      "supported_modalities": ["optical", "multispectral"],
+      "input_count": 2,
+      "requires_coregistration": true,
+      "permitted_params": {
+        "max_new_tokens": {"type": "int", "default": 256, "min": 1, "max": 1024},
+        "temperature": {"type": "float", "default": 0.0, "min": 0.0, "max": 1.0}
+      },
+      "enabled": true,
+      "description": "Bi-temporal change description, change quantification, and change-VQA from multi-date image pairs."
+    },
+    {
+      "name": "opt-sar-fusion",
+      "version": "1.0.0",
+      "model_key": "dofa-fusion",
+      "model_name": "DOFA ViT-B + Head + EarthDial LLM (Model B)",
+      "backbone": "DOFA ViT-B (Wavelength Conditioned) + Cross-Attn Head + Phi-3-mini",
+      "task": "opt_sar_fusion",
+      "slot": "S4",
+      "resource_class": "dofa",
+      "load_group": "encoder",
+      "supported_modalities": ["optical", "multispectral", "sar"],
+      "input_count": 2,
+      "requires_coregistration": true,
+      "permitted_params": {
+        "max_new_tokens": {"type": "int", "default": 256, "min": 1, "max": 1024},
+        "temperature": {"type": "float", "default": 0.0, "min": 0.0, "max": 1.0}
+      },
+      "enabled": true,
+      "description": "Cross-modal joint extraction fusing co-registered optical/multispectral and SAR imagery."
+    }
+  ]
+}
