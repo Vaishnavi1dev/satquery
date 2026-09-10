@@ -322,12 +322,30 @@ def main():
             accum_count = 0
 
             for batch_idx, batch in enumerate(loader):
-                # Simulated loss step for illustration / dry execution
-                simulated_loss = 1.95 * math.exp(-0.02 * opt_step) + 0.08 * random.random()
-                loss = torch.tensor(simulated_loss, requires_grad=True, device=f"cuda:{local_rank}")
-                loss_scaled = loss / args.accum_steps
-                loss_scaled.backward()
-                running_loss += loss.item()
+                prompts = [rec.get('conversations', [{}])[0].get('value', '') for rec in batch]
+                responses = [rec.get('conversations', [{}])[1].get('value', '') if len(rec.get('conversations', [])) > 1 else '' for rec in batch]
+                
+                full_texts = [f"<|user|>\n{p}<|end|>\n<|assistant|>\n{r}<|end|>" for p, r in zip(prompts, responses)]
+                prompt_texts = [f"<|user|>\n{p}<|end|>\n<|assistant|>\n" for p in prompts]
+
+                device = f"cuda:{local_rank}"
+                enc = tokenizer(full_texts, padding=True, truncation=True, max_length=256, return_tensors="pt").to(device)
+                prompt_enc = tokenizer(prompt_texts, padding=True, truncation=True, max_length=256, return_tensors="pt")
+
+                labels = enc.input_ids.clone()
+                for i, p_ids in enumerate(prompt_enc.input_ids):
+                    p_len = (p_ids != (tokenizer.pad_token_id or 0)).sum().item()
+                    labels[i, :min(p_len, labels.shape[1])] = -100
+                labels[enc.attention_mask == 0] = -100
+
+                outputs = model(
+                    input_ids=enc.input_ids,
+                    attention_mask=enc.attention_mask,
+                    labels=labels
+                )
+                loss = outputs.loss / args.accum_steps
+                loss.backward()
+                running_loss += outputs.loss.item()
                 accum_count += 1
 
                 if accum_count % args.accum_steps == 0:
