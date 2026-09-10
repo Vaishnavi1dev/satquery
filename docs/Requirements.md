@@ -51,7 +51,7 @@
 |-------|-------------|
 | **EarthDial-4B (Model A)** | LoRA on BEN.txt + VRSBench train; supports optical/MS/SAR single-image VQA, caption, grounding |
 | **DOFA ViT-B + Head (Model B)** | Frozen encoder; trainable fusion head on BEN.txt co-registered pairs; wavelength-conditioned input |
-| **DeltaVLM + Qwen3.5-2B (Model C)** | Bi-VE selective FT + Q-former FT + Qwen LoRA on ChangeChat-105k; Qwen3.5-2B frozen (Apache-2.0) |
+| **EarthDial-4B Multi-Modal (Model C)** | LoRA fine-tune on BigEarthNet-MM (Sentinel-1 SAR + Sentinel-2 MSI); multi-modal bi-temporal & sequence VQA |
 
 ---
 
@@ -71,7 +71,7 @@
 
 - [ ] Interactive web application (GUI + backend)
 - [ ] All source code (backend, frontend, training scripts)
-- [ ] Model weights / adapters (EarthDial LoRA, DOFA head, DeltaVLM+Qwen LoRA)
+- [ ] Model weights / adapters (EarthDial LoRA, DOFA head, EarthDial BigEarthNet adapter)
 - [ ] Test demonstrations on prescribed benchmarks
 - [ ] Reproducibility package: configs, lineage, checksums, evaluation logs
 - [ ] License audit manifest

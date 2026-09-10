@@ -23,7 +23,7 @@ export default function IntelligencePage({ onLaunchDemo, systemStatus = 'ONLINE'
   const specialistModels = [
     {
       id: 'optical',
-      name: 'DeltaVLM / Qwen2-VL',
+      name: 'EarthDial-4B / InternVL2',
       role: 'Optical Grounding & VQA Specialist',
       modality: 'RGB / High-Res Optical',
       resolution: '0.3m – 10m GSD',
@@ -37,7 +37,7 @@ export default function IntelligencePage({ onLaunchDemo, systemStatus = 'ONLINE'
     },
     {
       id: 'sar',
-      name: 'SAR-Whisperer / Qwen2-SAR',
+      name: 'DOFA-ViT / EarthDial SAR',
       role: 'Synthetic Aperture Radar Specialist',
       modality: 'C/L-Band SAR Backscatter (VV/VH)',
       resolution: '5m – 20m GSD',
@@ -51,10 +51,10 @@ export default function IntelligencePage({ onLaunchDemo, systemStatus = 'ONLINE'
     },
     {
       id: 'changeformer',
-      name: 'ChangeFormer / DeltaVLM Diff',
-      role: 'Bi-Temporal Change Engine',
+      name: 'EarthDial-4B Multi-Modal Change',
+      role: 'Bi-Temporal & Multi-Sensor Change Engine',
       modality: 'Dual-Epoch Co-registered Pairs (T1, T2)',
-      resolution: 'Multi-Sensor Compatible',
+      resolution: 'Multi-Sensor Compatible (Optical, SAR, MSI)',
       capabilities: ['Structural Expansion Detection', 'Environmental Shift Segmentation', 'Mask IoU Quantification'],
       status: 'ONLINE',
       vram: '3.5 GB',

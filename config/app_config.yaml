@@ -24,7 +24,7 @@ model_store:
   weights_dir: "models"
   earthdial_model_path: "models/earthdial"
   dofa_model_path: "models/dofa"
-  deltavlm_model_path: "models/deltavlm"
+  earthdial_bigearthnet_model_path: "models/earthdial_bigearthnet"
 
 reports:
   output_format: "html"

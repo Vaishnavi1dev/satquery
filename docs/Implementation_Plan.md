@@ -1,7 +1,7 @@
 # Implementation Plan - SatQuery AI (3-Model Architecture)
 
 - **System:** SatQuery AI (SIH 2026 PS 26167, ISRO)
-- **Status:** v1.0 - Implementation roadmap for EarthDial + DOFA + DeltaVLM stack
+- **Status:** v2.0 - Implementation roadmap for EarthDial + DOFA + EarthDial-4B Multi-Modal stack
 - **Inputs:** PRD.md, Model_Selection.md, PS 26167
 - **Date:** 2026-09-08
 
@@ -24,7 +24,7 @@
 
 1. **Slice 1 (M1, ~1.5 weeks):** Minimal web page → backend → controller (VQA only) → registry → EarthDial base → confidence → evidence → trace.
 2. **Phase 1–2 (M2):** Input infrastructure + all 5 specialist tools on base weights.
-3. **Phase 3 (parallel from Week 1):** Data acquisition + fine-tuning (EarthDial on BEN.txt+VRSBench; DOFA head on BEN.txt pairs; DeltaVLM+Qwen on ChangeChat-105k).
+3. **Phase 3 (parallel from Week 1):** Data acquisition + fine-tuning (EarthDial on BEN.txt+VRSBench; DOFA head on BEN.txt pairs; EarthDial-4B on BigEarthNet-MM).
 4. **Phase 4–5 (M3):** Registry formalization + full agent (all 5 tasks, planner, aggregation, joint-use checks).
 5. **Phase 6–8 (M4):** Full API, GUI, evidence/report engines - contract-complete.
 6. **Phase 9–10 (M5):** Integration hardening + evaluation harness with dry-run measurement.
@@ -98,7 +98,7 @@ satquery/
 | IMP-013 | Modality detector: optical/MS/SAR from band count, metadata, filename heuristics | FR-008, AD-09 | Modality classified; fallback logged |
 | IMP-014 | Pair validator: co-registration check (CRS, transform, bounds tolerance), temporal order | FR-011, AD-08/11 | T-10 (corrupt), T-13 (incompatible) pass |
 | IMP-015 | Preprocessing profiles: band composites (RGB, false-color), SAR dB/log scaling, normalization stats | DAT-004/005/006 | Profiles for sentinel-2, sentinel-1, benchmark-rgb, cartosat-2s, risat |
-| IMP-016 | Resize/tiling: dynamic tiling (EarthDial 512, DOFA 224, DeltaVLM 224) with coordinate mapping | DAT-007, AD-10 | Coordinate round-trip test passes |
+| IMP-016 | Resize/tiling: dynamic tiling (EarthDial 512, DOFA 224) with coordinate mapping | DAT-007, AD-10 | Coordinate round-trip test passes |
 | IMP-017 | Tensor cache: keyed by (session, image_hash, profile, tile_params), LRU eviction | DAT-008 | Cache hit/miss verified; memory bounded |
 | IMP-018 | Input API: `/ingest` (single/pair), `/validate`, `/describe` endpoints | API_Contracts §6 | Contract tests (R-1..R-15) pass |
 
@@ -126,9 +126,9 @@ satquery/
 - **IMP-026:** DOFA encoder wrapper: wavelength input → patch embed → frozen ViT forward → multi-modal embeddings.
 - **IMP-027:** `opt-sar-fusion` tool: co-registered pair → DOFA embeddings (optical wavelengths + SAR wavelengths) → cross-attention fusion head → EarthDial LLM decode (shared Phi-3-mini via EarthDial adapter).
 
-### 6.4 Model C - DeltaVLM + Qwen3.5-2B (IMP-028..IMP-029)
-- **IMP-028:** Acquire Qwen3.5-2B (Apache-2.0); implement DeltaVLM Bi-VE (EVA-ViT-g/14) + IDPM (CSRM + Q-former) architecture; load Qwen3.5-2B as frozen decoder.
-- **IMP-029:** `change-vqa` tool: bi-temporal pair → Bi-VE → IDPM → Qwen3.5-2B generate.
+### 6.4 Model C - EarthDial-4B Multi-Modal (IMP-028..IMP-029)
+- **IMP-028:** Acquire EarthDial-4B multi-image base engine; prepare BigEarthNet-MM (Sentinel-1 SAR dual-pol + Sentinel-2 MSI) instruction dataset.
+- **IMP-029:** `change-vqa` tool: multi-modal bi-temporal & sequence analysis across Optical, SAR, and Multispectral.
 
 ### 6.5 Optional Grounding (IMP-030)
 - **IMP-030:** `rs-ground` tool (registry `enabled: false` initially): EarthDial native box output → image-space mapping → `not_located` honesty gate.
@@ -153,10 +153,10 @@ satquery/
 | Task | Description | Data | Gate |
 |------|-------------|------|------|
 | IMP-031 | Dataset acquisition: BigEarthNet.txt (S1+S2 pairs), VRSBench train, ChangeChat-105k train, CDVQA train | - | Checksums verified; manifests/acquisitions.json |
-| IMP-032 | Derived datasets: EarthDial instruction mix (BEN.txt captions/VQA/RED + VRSBench train), DOFA head pairs (BEN.txt S1+S2 captions/VQA), DeltaVLM+Qwen (ChangeChat-105k train) | PRD §9, Model_Selection §3 | Split hygiene: zero overlap with prescribed test splits (audit) |
+| IMP-032 | Derived datasets: EarthDial instruction mix (BEN.txt captions/VQA/RED + VRSBench train), DOFA head pairs (BEN.txt S1+S2 captions/VQA), EarthDial-4B (BigEarthNet-MM train) | PRD §9, Model_Selection §3 | Split hygiene: zero overlap with prescribed test splits (audit) |
 | IMP-033 | FT-A: EarthDial LoRA (r=16–32) on LLM + projector; freeze ViT; multi-sensor band-fusion | BEN.txt + VRSBench train | BEN.txt bench split: binary VQA ≥70%, caption BLEU-4 ≥30; VRSBench holdout BLEU-1 ≥45 |
 | IMP-034 | FT-B: DOFA fusion head (MLP + cross-attn) on BEN.txt co-registered pairs | BEN.txt paired annotations | S4 joint caption/VQA quality vs Model A solo (ablation) |
-| IMP-035 | FT-C: DeltaVLM+Qwen LoRA on Qwen3.5-2B (r=16–32); selective FT Bi-VE last 2 blocks; FT Q-former | ChangeChat-105k train (87,935) | ChangeChat val: caption CIDEr ≥ baseline; binary Acc ≥90%; open QA review |
+| IMP-035 | FT-C: EarthDial-4B LoRA on BigEarthNet-MM (Sentinel-1 SAR + Sentinel-2 MSI) | BigEarthNet-MM train | Multi-modal change detection accuracy; cycle-consistency ≥ 0.90 |
 | IMP-036 | Checkpoint import: version bump in registry, lineage pins, checksums in `models/` | - | Registry shows v2 for each adapted model |
 | IMP-037 | Dry-run measurement: adapted Model A on VRSBench test + RSVQA test; Model C on CDVQA test1 + test2 | Prescribed test splits | Logs saved; **no tuning** (DEC-021) |
 | IMP-038 | Re-run Phase 2 tool tests on adapted weights → all green | - | No regressions |
@@ -173,7 +173,7 @@ satquery/
 | Task | Description | Requirements |
 |------|-------------|--------------|
 | IMP-039 | Registry schema: descriptor (name, version, modality, count, resource_class, load_group, params, enabled) | AGT-003/004/006, INT-003 |
-| IMP-040 | `config/registry.json` v1: all 5 entries + resource classes (earthdial, dofa, deltavlm) + load groups | NFR-104/105, PRD-CON-007 |
+| IMP-040 | `config/registry.json` v1: all 5 entries + resource classes (earthdial, dofa, earthdial_change) + load groups | NFR-104/105, PRD-CON-007 |
 | IMP-041 | Registry lookup: controller → registry → runtime → tool adapter (no direct imports) | Contract §9, R-7 |
 | IMP-042 | Stub-specialist extensibility proof: add dummy tool with zero controller changes | NFR-105 |
 | IMP-043 | Registry↔model-store startup consistency check | - |
@@ -233,7 +233,7 @@ satquery/
 
 | Task | Description |
 |------|-------------|
-| IMP-064 | Overlay renderer: boxes (xyxy), heatmaps, grid (DeltaVLM 3×3) → GeoTIFF/PNG |
+| IMP-064 | Overlay renderer: boxes (xyxy), heatmaps, difference masks → GeoTIFF/PNG/GeoJSON |
 | IMP-065 | Multi-modality evidence: per-modality overlays (optical, SAR) for S4 |
 | IMP-066 | Report engine: Jinja2 HTML → WeasyPrint PDF; includes query, images, overlays, trace, confidence |
 | IMP-067 | Benchmark-format adapters: VRSBench caption/box, RSVQA answer string, CDVQA answer vocab | OTD-111 |
@@ -315,7 +315,6 @@ satquery/
 | Risk | Impact | Mitigation |
 |------|--------|------------|
 | EarthDial weight license blocks Model A | S1/S2/S4 primary unusable | Fallback: InternVL3-1B + BEN.txt FT (Model_Selection.md primary) - ready as Plan B |
-| DeltaVLM weights not on HF (reproduce Bi-VE+IDPM+Q-former) | S3 delay | Start reproduction early; Qwen3.5-2B + ChangeChat LoRA is fallback (Model_Selection.md backup) |
 | DOFA wavelength inputs for Cartosat-2S/RISAT unknown | S4 sensor gap | Sensor profiles (IMP-009, OTD-103) + ISRO doc request; proxy test on Sentinel |
 | 3 models × 2 LLMs exceed GPU budget | Deployment failure | Int8 co-residency (~8.5 GB) + lazy load/evict; validate on cloud GPU early (IMP-020 spike) |
 | CDVQA test split ambiguity (test1 vs test2 vs both) | Evaluation mismatch | Pin from benchmark release (TBD-005); run both, report both |

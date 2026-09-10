@@ -125,8 +125,8 @@ def test_cross_modal_dofa_evidence_provenance(agent):
     assert "cross-modal" in trace_text or "optical" in trace_text
 
 
-def test_bitemporal_deltavlm_evidence(agent):
-    """Requirement 4: DeltaVLM returns change regions, temporal relationship, and cycle consistency."""
+def test_bitemporal_earthdial_evidence(agent):
+    """Requirement 4: EarthDial-4B returns change regions, temporal relationship, and cycle consistency."""
     t1_img = make_dummy_envelope("img_t1", modality="optical")
     t2_img = make_dummy_envelope("img_t2", modality="optical")
 
@@ -137,14 +137,14 @@ def test_bitemporal_deltavlm_evidence(agent):
     )
 
     assert res.task == "change_vqa"
-    assert "DeltaVLM" in res.selected_model or "EarthDial-4B" in res.selected_model
+    assert "EarthDial-4B" in res.selected_model
     assert res.confidence is not None
 
     # Check evidence structure
     assert len(res.evidence) > 0
     change_ev = res.evidence[0]
     assert change_ev["type"] == "change_region"
-    assert change_ev["source_model"] in ("deltavlm", "earthdial-4b")
+    assert change_ev["source_model"] == "earthdial-4b"
     assert change_ev["time_from"] == "T1"
     assert change_ev["time_to"] == "T2"
     assert change_ev["change_detected"] is True
@@ -179,17 +179,17 @@ def test_common_result_json_serializable(agent):
 
 def test_multi_specialist_aggregation_conflict_detection():
     """Requirement 9: Aggregator identifies supporting vs conflicting evidence."""
-    # Specialist 1: DeltaVLM claims built-up expansion with high confidence
+    # Specialist 1: EarthDial claims built-up expansion with high confidence
     out1 = ToolOutput(
         tool_name="change-vqa",
-        model_name="DeltaVLM + Qwen3.5-2B",
+        model_name="EarthDial-4B (Multi-Image Engine)",
         text="Significant increase in built-up infrastructure (+18.4%).",
         boxes=[[10, 10, 100, 100]],
         confidence=0.92,
         evidence_type="bi_temporal_pair",
         evidence=[{
             "type": "change_region",
-            "source_model": "deltavlm",
+            "source_model": "earthdial-4b",
             "description": "Built-up expansion detected",
             "region": [10, 10, 100, 100],
             "score": 0.92
@@ -238,7 +238,7 @@ def test_multi_specialist_aggregation_conflict_detection():
 
 
 def test_agent_multi_specialist_composition_execution(agent):
-    """Requirement 9: End-to-end query scheduling both DeltaVLM and DOFA when asking for change and SAR confirmation."""
+    """Requirement 9: End-to-end query scheduling both EarthDial-4B and DOFA when asking for change and SAR confirmation."""
     opt_img = make_dummy_envelope("img_multi_opt", modality="optical")
     sar_img = make_dummy_envelope("img_multi_sar", modality="sar")
 
@@ -250,9 +250,9 @@ def test_agent_multi_specialist_composition_execution(agent):
 
     assert res.task == "change_vqa"
     assert "Specialist 1" in res.answer or "Primary Result" in res.answer or "Observation" in res.answer
-    # Should contain evidence from both change model (earthdial/deltavlm) and dofa
+    # Should contain evidence from both change model (earthdial-4b) and dofa
     models_in_evidence = {e["source_model"] for e in res.evidence}
-    assert any("earthdial" in m or "deltavlm" in m for m in models_in_evidence)
+    assert "earthdial-4b" in models_in_evidence
     assert "dofa" in models_in_evidence
     assert any("SAR" in t or "cross-modal" in t.lower() or "dofa" in t.lower() for t in res.trace)
 
@@ -270,7 +270,7 @@ def test_multi_temporal_sequence_analysis(agent):
     )
 
     assert res.task == "temporal_sequence"
-    assert "EarthDial-4B" in res.selected_model or "DeltaVLM-Sequence" in res.selected_model
+    assert "EarthDial-4B" in res.selected_model
     assert res.temporal_events is not None
     assert len(res.temporal_events) == 2
     assert res.temporal_events[0]["transition"] == "T1 → T2"

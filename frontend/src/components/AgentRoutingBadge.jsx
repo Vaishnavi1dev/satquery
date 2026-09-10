@@ -24,7 +24,7 @@ export default function AgentRoutingBadge({ imagesCount, imagesList, query }) {
   } else if (imagesCount >= 3) {
     modeCode = 'MODE D';
     architectureName = 'Multi-Temporal Sequence Analysis (T1...TN)';
-    specialistModel = 'DeltaVLM-Sequence Specialist';
+    specialistModel = 'EarthDial-4B Sequence Specialist';
     badgeColor = 'var(--temporal-color)';
     Icon = Clock;
     rationale = `Agent identified a multi-epoch sequence of ${imagesCount} satellite scenes. Automatically orchestrating cumulative trend extraction and chronological timeline synthesis.`;
@@ -39,10 +39,10 @@ export default function AgentRoutingBadge({ imagesCount, imagesList, query }) {
     } else {
       modeCode = 'MODE C';
       architectureName = 'Bi-Temporal Change Detection & Change-VQA';
-      specialistModel = 'DeltaVLM + Qwen3.5-2B';
+      specialistModel = 'EarthDial-4B (Multi-Image Engine)';
       badgeColor = 'var(--temporal-color)';
       Icon = Clock;
-      rationale = 'Agent verified 2 co-registered temporal observations. Automatically routing to bi-temporal difference modeling and cycle-consistent change verification.';
+      rationale = 'Agent verified 2 co-registered temporal observations. Automatically routing to multi-modal bi-temporal difference modeling and change verification.';
     }
   } else if (imagesCount === 1) {
     const isGrounding = ['highlight', 'locate', 'box', 'draw', 'bounding', 'where is', 'detect', 'pinpoint'].some((k) => q_lower.includes(k));

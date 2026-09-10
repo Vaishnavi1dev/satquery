@@ -18,7 +18,7 @@ class ModelExecutionError(Exception):
 class ModelRuntimeManager:
     """
     Manages model loading, device placement, load group eviction,
-    and execution between Model A (EarthDial), Model B (DOFA), and Model C (DeltaVLM).
+    and execution between Model A (EarthDial Grounding), Model B (DOFA Hypernetwork), and Model C (EarthDial-4B Multi-Modal).
     """
 
     def __init__(self):

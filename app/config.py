@@ -34,7 +34,7 @@ class ModelStoreConfig(BaseModel):
     weights_dir: str = "models"
     earthdial_model_path: str = "models/earthdial"
     dofa_model_path: str = "models/dofa"
-    deltavlm_model_path: str = "models/deltavlm"
+    earthdial_bigearthnet_model_path: str = "models/earthdial_bigearthnet"
 
 
 class ReportsConfig(BaseModel):

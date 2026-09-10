@@ -19,10 +19,14 @@ models:
     input_size: 224
     wavelength_conditioned: true
 
-  deltavlm-qwen:
-    name: "DeltaVLM + Qwen3.5-2B"
-    vision_encoder: "EVA-ViT-g/14"
-    difference_module: "CSRM + Q-former"
-    llm_backbone: "Qwen/Qwen2.5-1.5B-Instruct"  # or Qwen2.5-3B-Instruct
-    input_size: 224
-    prompt_template: "<|im_start|>user\nGiven Image 1 (T1) and Image 2 (T2):\n{query}<|im_end|>\n<|im_start|>assistant\n"
+  earthdial-4b-bigearthnet:
+    name: "EarthDial-4B (BigEarthNet-MM Multi-Modal)"
+    hf_repo: "akshaydudhane/EarthDial_4B_RGB"
+    fallback_repo: "OpenGVLab/InternVL2-4B"
+    llm_backbone: "microsoft/Phi-3-mini-4k-instruct"
+    vision_backbone: "InternViT-300M"
+    input_size: 512
+    max_tokens: 512
+    supported_sensors: ["Sentinel-2 (MSI)", "Sentinel-1 (SAR)", "Optical RGB"]
+    prompt_template: "<|user|>\n<image>\n{query}<|end|>\n<|assistant|>\n"
+    grounding_format: "[ymin, xmin, ymax, xmax] in normalized 0-1000 range"

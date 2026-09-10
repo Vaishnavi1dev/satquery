@@ -46,11 +46,11 @@ Develop an **interactive, agentic vision-language assistant** for analyzing sing
 |-------|------|---------------------|--------|
 | **EarthDial-4B** (hiyamdebary/EarthDial) | S1/S2 Single-image specialist | Optical/MS/SAR single-image: captioning, VQA, grounding | https://github.com/hiyamdebary/EarthDial |
 | **DOFA** (zhu-xlab/DOFA) | S4 Cross-modal fusion encoder | Co-registered optical/MS + SAR: feature extraction/fusion (encoder) | https://github.com/zhu-xlab/DOFA |
-| **DeltaVLM** (hanlinwu/DeltaVLM) | S3 Bi-temporal change specialist | Bi-temporal pairs: change detection, description, change-VQA | https://github.com/hanlinwu/DeltaVLM |
+| **EarthDial-4B Multi-Modal** | S3 Bi-temporal & multi-sensor change | Bi-temporal pairs (Optical, SAR, MSI): change detection, description, change-VQA | Fine-tuned on BigEarthNet-MM |
 
 > **Note on DOFA:** DOFA is a wavelength-conditioned ViT encoder (no LLM). It serves as the **feature extractor/fusion backbone** for S4. A lightweight projection + LLM head (or the EarthDial LLM) generates the final textual response for optical–SAR queries.
 
-> **Note on DeltaVLM:** Uses Vicuna-7B (LLaMA-2 lineage) as frozen LLM decoder. Licensing is research-only. For competition deliverable, we either (a) accept the risk and document it, or (b) swap the LLM to Qwen3.5-2B (Apache-2.0) while keeping DeltaVLM's Bi-VE + IDPM + Q-former architecture, retrained on ChangeChat-105k. Decision: **Option (b) - LLM swap to Qwen3.5-2B** for license compliance.
+> **Note on Multi-Modal Change (Model C):** Replaces single-sensor optical baselines with EarthDial-4B multi-image engine fine-tuned on BigEarthNet (Sentinel-1 SAR dual-pol + Sentinel-2 MSI). This supports true cross-sensor and multi-temporal change detection under Apache-2.0 / open license.
 
 ---
 
@@ -58,9 +58,9 @@ Develop an **interactive, agentic vision-language assistant** for analyzing sing
 
 - "Describe the land-cover and major objects visible in this image." → EarthDial
 - "Highlight the water body referred to in the query." → EarthDial (grounding)
-- "What changed between these two dates, and where did the change occur?" → DeltaVLM
+- "What changed between these two dates, and where did the change occur?" → EarthDial-4B Multi-Modal
 - "Use the optical and SAR images together to identify built-up and water-covered regions." → DOFA + EarthDial LLM head
-- "Has the built-up area increased, decreased, or remained unchanged?" → DeltaVLM
+- "Has the built-up area increased, decreased, or remained unchanged?" → EarthDial-4B Multi-Modal
 
 ---
 
@@ -103,7 +103,7 @@ Scores normalized across benchmarks before final ranking.
 
 - **DEC-001:** BigEarthNet.txt is primary adaptation dataset (co-registered S1+S2 + text)
 - **DEC-002:** VRSBench/RSVQA/CDVQA train splits only for training; test splits held out
-- **DEC-003:** DeltaVLM LLM swapped to Qwen3.5-2B (Apache-2.0) for license compliance
+- **DEC-003:** Model C unified on EarthDial-4B Multi-Modal fine-tuned on BigEarthNet-MM to natively support Optical, SAR, and Multispectral change detection with zero 12h training timeout constraints
 - **DEC-004:** DOFA used as frozen encoder; only projection head + optional LLM adapter trained
 - **DEC-005:** EarthDial weights used as initialization; LoRA fine-tune on BEN.txt + VRSBench train
 - **DEC-006:** Windows dev = storage/test only; cloud GPU = training + inference deployment

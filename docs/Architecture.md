@@ -1,7 +1,7 @@
 # Architecture - SatQuery AI (3-Model Architecture)
 
 - **System:** SatQuery AI (SIH 2026 PS 26167, ISRO)
-- **Status:** v1.0 - Architecture for EarthDial + DOFA + DeltaVLM stack
+- **Status:** v2.0 - Architecture for EarthDial + DOFA + EarthDial-4B Multi-Modal stack
 - **Date:** 2026-09-08
 
 ---
@@ -43,9 +43,9 @@
               ┌──────────────────┼──────────────────┐
               ▼                  ▼                  ▼
 ┌─────────────────────┐ ┌─────────────────┐ ┌─────────────────┐
-│   MODEL A           │ │   MODEL B       │ │   MODEL C       │
-│   EarthDial-4B      │ │   DOFA ViT-B    │ │   DeltaVLM +    │
-│   (Phi-3-mini LLM)  │ │   (frozen enc)  │ │   Qwen3.5-2B    │
+│       Model A       │ │     Model B     │ │     Model C     │
+│   EarthDial-4B      │ │   DOFA ViT-B    │ │  EarthDial-4B   │
+│ (Grounding/Caption) │ │ (Cross-Modal)   │ │  (BigEarthNet)  │
 │   ┌───────────────┐ │ │   ┌───────────┐ │ │   ┌───────────┐ │
 │   │ rs-vqa        │ │ │   │ Fusion    │ │ │   │ change-vqa│ │
 │   │ rs-caption    │ │ │   │ Head      │ │ │   │           │ │
@@ -141,16 +141,15 @@ User Query + Image(s)
 |-------|--------|-------------|------------|
 | `earthdial` | EarthDial-4B (Phi-3-mini) | ~4.2 GB | `llm_primary` |
 | `dofa` | DOFA ViT-B + Fusion Head | ~0.3 GB | `encoder` |
-| `deltavlm` | DeltaVLM (Bi-VE + Q-former) + Qwen3.5-2B | ~4.0 GB | `llm_secondary` |
+| `earthdial_change` | EarthDial-4B Multi-Modal Engine | ~4.2 GB | `llm_primary` |
 
 ### 3.2 Load Groups & Eviction Policy
-- **`llm_primary`** (EarthDial): Resident for S1/S2/S4 queries. Evicted only if `llm_secondary` needed and VRAM pressure.
-- **`llm_secondary`** (Qwen3.5-2B): Loaded on-demand for S3. Evicted after query completes.
+- **`llm_primary`** (EarthDial-4B): Shared resident runtime for S1/S2/S3/S4 queries (BigEarthNet multi-modal fine-tuned).
 - **`encoder`** (DOFA): Always resident (negligible VRAM).
 
 ### 3.3 Quantization
 - All LLMs: BNB int8 default (bitsandbytes). int4 fallback if VRAM < 8 GB.
-- Encoders (DOFA, Bi-VE): bf16 (small, no quantization benefit).
+- Encoders (DOFA): bf16 (small, no quantization benefit).
 
 ---
 
@@ -178,7 +177,7 @@ Output: {text: str, boxes: [[x1,y1,x2,y2], ...], confidence: float, evidence_ptr
 Honesty: If no boxes → {text: "not_located", boxes: [], confidence: 0.0, ...}
 ```
 
-### 4.4 `change-vqa` - Bi-Temporal Change VQA (Model C: DeltaVLM+Qwen)
+### 4.4 `change-vqa` - Bi-Temporal Change VQA (Model C: EarthDial-4B Multi-Modal)
 ```python
 Input:  {image_t1: [C,H,W], image_t2: [C,H,W], query: str}
 Params: {max_new_tokens: 256, temperature: 0.0}
@@ -253,9 +252,8 @@ benchmark-rgb:
 5. **SAR Scaling** → if SAR: 10*log10(power + eps) → dB
 6. **Normalize** → (x - mean) / std per profile
 7. **Resize/Tile** → model-specific:
-   - EarthDial: 512×512 (native)
+   - EarthDial / EarthDial-4B Multi-Modal: 512×512 (native)
    - DOFA: 224×224 (ViT patch)
-   - DeltaVLM Bi-VE: 224×224
 8. **Tensor Cache** → key = (session_id, image_hash, profile_name, tile_params)
 
 ---
@@ -380,7 +378,7 @@ sessions/
 |----------|----------|
 | DEC-001: BigEarthNet.txt primary adaptation dataset | PRD.md |
 | DEC-002: Train splits only, test splits held out | PRD.md, Data_Pipeline.md |
-| DEC-003: DeltaVLM LLM → Qwen3.5-2B (Apache-2.0) | Model_Selection.md §3.3, §6 |
+| DEC-003: Model C unified on EarthDial-4B Multi-Modal (BigEarthNet-MM) | Model_Selection.md §3.3, §6 |
 | DEC-004: DOFA frozen encoder + trainable head | Model_Selection.md §3.2 |
 | DEC-005: EarthDial LoRA on BEN.txt + VRSBench | Model_Selection.md §3.1 |
 | DEC-006: Windows dev / cloud deploy split | PRD.md §9 |

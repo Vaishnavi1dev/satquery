@@ -109,7 +109,7 @@ class ExecutionPlanner:
             decomposition_reasoning = (
                 "Query fuses all-weather radar backscatter verification with temporal change analysis. "
                 "Decomposed into Subtask 1: Cross-Modal Feature Fusion (DOFA-Large), followed by "
-                "Subtask 2: Bi-Temporal Cycle-Consistent Change Verification (DeltaVLM)."
+                "Subtask 2: Multi-Modal Bi-Temporal Change Verification (EarthDial-4B)."
             )
             dofa_desc = self.registry.get_descriptor("opt-sar-fusion")
             change_desc = self.registry.get_descriptor("change-vqa")
@@ -162,7 +162,7 @@ class ExecutionPlanner:
             is_decomposed = True
             decomposition_reasoning = (
                 "Query asks for cumulative temporal sequence analysis as well as localization of highest change zones. "
-                "Decomposed into Subtask 1: Multi-Epoch Timeline Progression (DeltaVLM-Sequence), and "
+                "Decomposed into Subtask 1: Multi-Epoch Timeline Progression (EarthDial-4B Sequence), and "
                 "Subtask 2: Latest-Epoch Target Grounding (EarthDial-4B)."
             )
             steps.append(ExecutionStep(

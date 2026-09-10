@@ -35,8 +35,8 @@ const MODALITIES = [
     shortName: 'Pre & Post Event',
     icon: Clock,
     badge: '2 Images (Pair)',
-    model: 'DeltaVLM Bi-Temporal',
-    description: 'Co-registered pre-event (T0) and post-event (T1) scenes for disaster impact, urban expansion, and cycle-consistent change logging.',
+    model: 'EarthDial-4B Bi-Temporal',
+    description: 'Co-registered pre-event (T0) and post-event (T1) scenes across Optical, SAR, or Multispectral for disaster impact and change logging.',
     cardClass: 'temporal',
     slots: [
       { id: 'temp_t0', label: 'Pre-Event Scene (T0)', accept: 'Baseline / Pre-Disaster Scene', modality: 'optical' },
@@ -49,7 +49,7 @@ const MODALITIES = [
     shortName: 'Timeline Progression',
     icon: Sparkles,
     badge: '3+ Images (Timeline)',
-    model: 'DeltaVLM-Sequence Specialist',
+    model: 'EarthDial-4B Sequence Specialist',
     description: 'Continuous chronological analysis across T1 → T2 → ... → TN epochs producing cumulative event trends and land evolution curves.',
     cardClass: 'temporal',
     slots: [
