@@ -259,7 +259,10 @@ REPORT_TEMPLATE = """
                         <td><strong style="color: var(--cyan);">{{ (ev.get('source_model') or 'Specialist') | upper }}</strong></td>
                         <td>{{ ev.get('description') or ev.get('label') or 'Observable model extraction' }}</td>
                         <td>
-                            {% if ev.get('region') %}
+                            {% if ev.get('geo_coordinates') %}
+                                <div style="color: #3fb950; font-weight: 600; font-size: 12px; margin-bottom: 2px;">📍 {{ ev.get('geo_coordinates') }}</div>
+                                {% if ev.get('region') %}<code style="font-size: 10px; color: #8b949e;">Pixel: {{ ev.get('region') }}</code>{% endif %}
+                            {% elif ev.get('region') %}
                                 <code>{{ ev.get('region') }}</code>
                             {% elif ev.get('time_from') and ev.get('time_to') %}
                                 <span class="badge" style="background:#1f2937;">{{ ev.get('time_from') }} &rarr; {{ ev.get('time_to') }}</span>
@@ -267,6 +270,7 @@ REPORT_TEMPLATE = """
                                 <span style="color: #8b949e;">Scene-level</span>
                             {% endif %}
                         </td>
+
                         <td style="color: var(--cyan); font-weight: 600;">
                             {% if ev.get('score') is not none %}{{ (ev.get('score') * 100) | round(1) }}%{% else %}N/A{% endif %}
                         </td>

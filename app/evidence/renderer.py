@@ -1,10 +1,12 @@
 import io
+import json
 from pathlib import Path
 from typing import List, Optional, Tuple, Dict, Any
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
-from app.data.ingestion import ImageMetadataEnvelope, ImageIngestionService
+from app.data.ingestion import ImageMetadataEnvelope, ImageIngestionService, boxes_to_geojson, pixel_box_to_geo
 from app.storage.sandbox import StorageSandbox
+
 
 
 class EvidenceRenderer:
@@ -200,3 +202,90 @@ class EvidenceRenderer:
         dest_path.parent.mkdir(parents=True, exist_ok=True)
         canvas.save(dest_path, format="PNG")
         return dest_path
+
+    def render_difference_heatmap(
+        self,
+        session_id: str,
+        env_t1: ImageMetadataEnvelope,
+        env_t2: ImageMetadataEnvelope,
+        change_boxes: Optional[List[List[int]]] = None
+    ) -> Dict[str, Path]:
+        """
+        Computes pixel-level difference heatmap between Observation T1 and T2.
+        Returns:
+          overlay_path: Image T2 with neon amber/red difference heatmap overlay
+          mask_path: Transparent standalone change mask for interactive slider toggle
+        """
+        img1 = self._load_pil_image(env_t1)
+        img2 = self._load_pil_image(env_t2)
+
+        w, h = img2.width, img2.height
+        if img1.size != (w, h):
+            img1 = img1.resize((w, h), Image.Resampling.BILINEAR)
+
+        arr1 = np.array(img1, dtype=np.float32)
+        arr2 = np.array(img2, dtype=np.float32)
+
+        diff = np.abs(arr2 - arr1)
+        if diff.ndim == 3:
+            diff_mag = np.mean(diff, axis=-1)
+        else:
+            diff_mag = diff
+
+        p75 = float(np.percentile(diff_mag, 75))
+        max_d = float(np.max(diff_mag))
+        if max_d > p75:
+            diff_norm = np.clip((diff_mag - p75) / (max_d - p75) * 255.0, 0, 255).astype(np.uint8)
+        else:
+            diff_norm = np.zeros((h, w), dtype=np.uint8)
+
+        # Create transparent RGBA change mask (bright neon amber/coral: [255, 80, 50])
+        mask_rgba = np.zeros((h, w, 4), dtype=np.uint8)
+        active_pixels = diff_norm > 25
+        mask_rgba[active_pixels, 0] = 255
+        mask_rgba[active_pixels, 1] = 85
+        mask_rgba[active_pixels, 2] = 50
+        mask_rgba[active_pixels, 3] = np.clip(diff_norm[active_pixels].astype(np.float32) * 1.6, 70, 220).astype(np.uint8)
+
+        mask_pil = Image.fromarray(mask_rgba, mode="RGBA")
+
+        # Blend over T2
+        base_rgba = img2.convert("RGBA")
+        blended = Image.alpha_composite(base_rgba, mask_pil)
+        draw = ImageDraw.Draw(blended)
+
+        # Draw boxes if provided
+        if change_boxes:
+            for b in change_boxes:
+                if len(b) == 4:
+                    draw.rectangle(b, outline=(255, 220, 0, 240), width=3)
+                    draw.text((b[0] + 6, b[1] + 6), "Spatial Delta", fill=(255, 220, 0, 240))
+
+        pair_id = f"{env_t1.image_id}__{env_t2.image_id}"
+        overlay_path = self.sandbox.get_evidence_path(session_id, f"evidence_diff_overlay_{pair_id}.png")
+        mask_path = self.sandbox.get_evidence_path(session_id, f"evidence_diff_mask_{pair_id}.png")
+
+        overlay_path.parent.mkdir(parents=True, exist_ok=True)
+        blended.convert("RGB").save(overlay_path, format="PNG")
+        mask_pil.save(mask_path, format="PNG")
+
+        return {
+            "overlay_path": overlay_path,
+            "mask_path": mask_path
+        }
+
+    def save_geojson_evidence(
+        self,
+        session_id: str,
+        envelope: ImageMetadataEnvelope,
+        boxes: List[List[int]],
+        label: str = "Detected Target"
+    ) -> Path:
+        """Generates and saves standard GeoJSON FeatureCollection for GIS visualization."""
+        geojson_data = boxes_to_geojson(boxes, envelope, label=label)
+        dest_path = self.sandbox.get_evidence_path(session_id, f"evidence_spatial_{envelope.image_id}.geojson")
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(dest_path, "w", encoding="utf-8") as f:
+            json.dump(geojson_data, f, indent=2)
+        return dest_path
+

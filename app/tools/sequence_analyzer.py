@@ -1,15 +1,17 @@
 from typing import Dict, Any, List, Optional
 from app.tools.base import ToolBase, ToolOutput
 from app.runtime.manager import ModelExecutionError
+from app.data.ingestion import pixel_box_to_geo
 
 
 class MultiTemporalSequenceTool(ToolBase):
     """
-    Multi-Temporal Sequence Analysis Tool (Model C+: DeltaVLM-Sequence).
-    Analyzes sequences of N >= 3 satellite observations (T1 -> T2 -> ... -> TN)
+    Multi-Temporal Sequence Analysis Tool (EarthDial-4B Multi-Temporal Sequence Engine).
+    Analyzes sequences of N >= 3 satellite observations (T1 -> T2 -> ... -> TN) across Optical, MS, and SAR
     to identify a progressive timeline of events, cumulative land transformation,
-    and cyclical trends.
+    and cyclical trends with GIS coordinates.
     """
+
 
     def invoke(self, inputs: Dict[str, Any], parameters: Optional[Dict[str, Any]] = None) -> ToolOutput:
         clean_params = self.validate_and_filter_params(parameters)

@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Eye, Layers, Box, CheckCircle2, Image as ImageIcon, Sparkles, Clock, TrendingUp, ArrowRight } from 'lucide-react';
+import { Eye, Layers, Box, CheckCircle2, Image as ImageIcon, Sparkles, Clock, TrendingUp, ArrowRight, Download, MapPin } from 'lucide-react';
+import BeforeAfterSlider from './BeforeAfterSlider.jsx';
 
 export default function EvidenceViewer({ result, slotImages }) {
-  const [activeTab, setActiveTab] = useState('evidence'); // 'evidence' or slotId
+  const [activeTab, setActiveTab] = useState('evidence'); // 'evidence', 'slider', or slotId
   const [selectedEvidenceIndex, setSelectedEvidenceIndex] = useState(null);
   const [activeTransitionIndex, setActiveTransitionIndex] = useState(0);
 
@@ -18,18 +19,21 @@ export default function EvidenceViewer({ result, slotImages }) {
   // Active highlighted box calculation
   let activeHighlightBox = null;
   let activeHighlightLabel = null;
+  let activeHighlightGeo = null;
 
   if (selectedEvidenceIndex !== null && evidenceList[selectedEvidenceIndex]) {
     const item = evidenceList[selectedEvidenceIndex];
     if (item.region && item.region.length === 4) {
       activeHighlightBox = item.region;
       activeHighlightLabel = item.category || item.type || 'Focused Region';
+      activeHighlightGeo = item.geo_coordinates;
     }
   } else if (temporalEvents.length > 0 && temporalEvents[activeTransitionIndex]) {
     const ev = temporalEvents[activeTransitionIndex];
     if (ev.region && ev.region.length === 4) {
       activeHighlightBox = ev.region;
       activeHighlightLabel = `${ev.transition}: ${ev.category}`;
+      activeHighlightGeo = ev.geo_coordinates;
     }
   }
 
@@ -59,8 +63,18 @@ export default function EvidenceViewer({ result, slotImages }) {
           PILLAR 3 • INTERACTIVE VISUAL EVIDENCE OVERLAYS
         </div>
 
-        {/* View Switcher Tabs */}
-        <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+        {/* View Switcher Tabs & GIS Export */}
+        <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          {result.task === 'change_vqa' && availableSlots.length >= 2 && (
+            <button
+              className={`btn btn-sm ${activeTab === 'slider' ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => setActiveTab('slider')}
+              style={{ color: activeTab === 'slider' ? undefined : '#38bdf8', border: '1px solid rgba(56, 189, 248, 0.3)' }}
+            >
+              <span>↔ Split Slider</span>
+            </button>
+          )}
+
           {evidenceUrl && (
             <button
               className={`btn btn-sm ${activeTab === 'evidence' ? 'btn-primary' : 'btn-ghost'}`}
@@ -84,12 +98,43 @@ export default function EvidenceViewer({ result, slotImages }) {
               <span>Observation {i + 1} ({env.modality})</span>
             </button>
           ))}
+
+          {result.geojson_url && (
+            <a
+              href={result.geojson_url}
+              download={`spatial_evidence_${result.trace_id}.geojson`}
+              className="btn btn-sm btn-ghost"
+              style={{ 
+                display: 'inline-flex', 
+                alignItems: 'center', 
+                gap: '0.35rem', 
+                color: '#10b981', 
+                border: '1px solid rgba(16, 185, 129, 0.35)',
+                textDecoration: 'none'
+              }}
+              title="Download standard GeoJSON for QGIS / ArcGIS"
+            >
+              <Download size={13} />
+              <span>GeoJSON (GIS)</span>
+            </a>
+          )}
         </div>
       </div>
 
       {/* Interactive Image Display Viewport */}
       <div className="evidence-viewport" style={{ position: 'relative' }}>
-        {activeTab === 'evidence' && evidenceUrl ? (
+        {activeTab === 'slider' && availableSlots.length >= 2 ? (
+          <div style={{ width: '100%' }}>
+            <BeforeAfterSlider
+              img1Url={availableSlots[0][1].thumbnail_base64}
+              img2Url={availableSlots[1][1].thumbnail_base64}
+              diffMaskUrl={result.diff_mask_url}
+              diffOverlayUrl={result.diff_overlay_url}
+              label1={`T1: ${availableSlots[0][1].filename} (${availableSlots[0][1].modality})`}
+              label2={`T2: ${availableSlots[1][1].filename} (${availableSlots[1][1].modality})`}
+            />
+          </div>
+        ) : activeTab === 'evidence' && evidenceUrl ? (
           <img src={evidenceUrl} alt="Visual Evidence Overlay" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
         ) : activeTab !== 'evidence' && slotImages?.[activeTab]?.thumbnail_base64 ? (
           <img
@@ -98,6 +143,7 @@ export default function EvidenceViewer({ result, slotImages }) {
             style={{ width: '100%', height: '100%', objectFit: 'contain' }}
           />
         ) : availableSlots.length > 0 && availableSlots[0][1]?.thumbnail_base64 ? (
+
           <img
             src={availableSlots[0][1].thumbnail_base64}
             alt={availableSlots[0][1].filename}
@@ -298,7 +344,13 @@ export default function EvidenceViewer({ result, slotImages }) {
                   )}
                   {item.region && (
                     <div className="mono" style={{ fontSize: '0.68rem', color: 'var(--cyan-400)', marginTop: 2 }}>
-                      Region: [{item.region.join(', ')}]
+                      Pixel: [{item.region.join(', ')}]
+                    </div>
+                  )}
+                  {item.geo_coordinates && (
+                    <div className="mono" style={{ fontSize: '0.68rem', color: '#10b981', marginTop: 2, display: 'flex', alignItems: 'center', gap: '3px' }}>
+                      <MapPin size={11} />
+                      <span>{item.geo_coordinates}</span>
                     </div>
                   )}
                 </div>

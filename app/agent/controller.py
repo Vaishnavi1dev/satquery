@@ -37,8 +37,13 @@ class QueryExecutionResult(BaseModel):
     trace_view: Optional[TraceView] = None
     boxes: Optional[List[List[int]]] = None
     evidence_url: Optional[str] = None
+    diff_mask_url: Optional[str] = None
+    diff_overlay_url: Optional[str] = None
+    geojson_url: Optional[str] = None
+    geo_boxes: Optional[List[Dict[str, Any]]] = None
     report_url: Optional[str] = None
     duration_ms: float
+
 
 
 class AgentController:
@@ -171,6 +176,9 @@ class AgentController:
             stream.start_step("FinalResult")
             evidence_path = None
             evidence_url = None
+            diff_mask_url = None
+            diff_overlay_url = None
+            geojson_url = None
 
             # Render Task-Specific Evidence
             if task == "temporal_sequence" and len(images) >= 3:
@@ -186,6 +194,15 @@ class AgentController:
                     env_t2=images[1],
                     change_boxes=aggregated.boxes
                 )
+                # Compute pixel-level difference heatmap and transparent mask
+                diff_res = self.evidence_renderer.render_difference_heatmap(
+                    session_id=session_id,
+                    env_t1=images[0],
+                    env_t2=images[1],
+                    change_boxes=aggregated.boxes
+                )
+                diff_overlay_url = f"/api/evidence/{diff_res['overlay_path'].name}?session_id={session_id}"
+                diff_mask_url = f"/api/evidence/{diff_res['mask_path'].name}?session_id={session_id}"
             elif task == "opt_sar_fusion" and len(images) >= 2:
                 env1, env2 = images[0], images[1]
                 if env1.modality == "sar":
@@ -206,13 +223,29 @@ class AgentController:
                     label=query[:24] if query else "Analysed Target"
                 )
 
+            # Generate GeoJSON if spatial boxes detected
+            if aggregated.boxes:
+                target_env = images[-1] if len(images) >= 2 else images[0]
+                geojson_path = self.evidence_renderer.save_geojson_evidence(
+                    session_id=session_id,
+                    envelope=target_env,
+                    boxes=aggregated.boxes,
+                    label=f"Spatial Target ({task})"
+                )
+                geojson_url = f"/api/evidence/{geojson_path.name}?session_id={session_id}"
+
             if evidence_path:
                 evidence_url = f"/api/evidence/{evidence_path.name}?session_id={session_id}"
 
             stream.emit(
                 "EVIDENCE_RENDERED",
                 "FinalResult",
-                {"evidence_url": evidence_url, "overlay_file": evidence_path.name if evidence_path else None},
+                {
+                    "evidence_url": evidence_url,
+                    "diff_mask_url": diff_mask_url,
+                    "geojson_url": geojson_url,
+                    "overlay_file": evidence_path.name if evidence_path else None
+                },
                 status="SUCCESS"
             )
 
@@ -231,12 +264,14 @@ class AgentController:
 
             total_ms = (time.time() - start_time) * 1000.0
 
-            # Extract temporal events if present
+            # Extract temporal events and geo-boxes if present
             temporal_events = None
+            geo_boxes = None
             for out in tool_outputs:
                 if "temporal_events" in out.metadata:
                     temporal_events = out.metadata["temporal_events"]
-                    break
+                if "geo_boxes" in out.metadata:
+                    geo_boxes = out.metadata["geo_boxes"]
 
             return QueryExecutionResult(
                 trace_id=tid,
@@ -258,9 +293,14 @@ class AgentController:
                 trace_view=trace_view,
                 boxes=aggregated.boxes,
                 evidence_url=evidence_url,
+                diff_mask_url=diff_mask_url,
+                diff_overlay_url=diff_overlay_url,
+                geojson_url=geojson_url,
+                geo_boxes=geo_boxes,
                 report_url=report_url,
                 duration_ms=round(total_ms, 2)
             )
+
 
         except Exception as e:
             stream.emit("QUERY_FAILED", "ErrorHandling", {"error": str(e)}, status="ERROR")

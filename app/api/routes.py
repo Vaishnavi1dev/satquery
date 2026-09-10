@@ -209,7 +209,9 @@ def download_evidence(filename: str, session_id: str = Query(...)):
     path = sandbox.get_evidence_path(session_id, filename)
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"Evidence file '{filename}' not found.")
-    return FileResponse(path, media_type="image/png")
+    media_type = "application/geo+json" if path.suffix == ".geojson" else "image/png"
+    return FileResponse(path, media_type=media_type)
+
 
 
 @router.get("/report/{filename}")

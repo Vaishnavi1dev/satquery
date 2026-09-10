@@ -137,14 +137,14 @@ def test_bitemporal_deltavlm_evidence(agent):
     )
 
     assert res.task == "change_vqa"
-    assert "DeltaVLM" in res.selected_model
+    assert "DeltaVLM" in res.selected_model or "EarthDial-4B" in res.selected_model
     assert res.confidence is not None
 
     # Check evidence structure
     assert len(res.evidence) > 0
     change_ev = res.evidence[0]
     assert change_ev["type"] == "change_region"
-    assert change_ev["source_model"] == "deltavlm"
+    assert change_ev["source_model"] in ("deltavlm", "earthdial-4b")
     assert change_ev["time_from"] == "T1"
     assert change_ev["time_to"] == "T2"
     assert change_ev["change_detected"] is True
@@ -249,10 +249,10 @@ def test_agent_multi_specialist_composition_execution(agent):
     )
 
     assert res.task == "change_vqa"
-    assert "Primary Result" in res.answer or "Observation" in res.answer
-    # Should contain evidence from both deltavlm and dofa
+    assert "Specialist 1" in res.answer or "Primary Result" in res.answer or "Observation" in res.answer
+    # Should contain evidence from both change model (earthdial/deltavlm) and dofa
     models_in_evidence = {e["source_model"] for e in res.evidence}
-    assert "deltavlm" in models_in_evidence
+    assert any("earthdial" in m or "deltavlm" in m for m in models_in_evidence)
     assert "dofa" in models_in_evidence
     assert any("SAR" in t or "cross-modal" in t.lower() or "dofa" in t.lower() for t in res.trace)
 
@@ -270,7 +270,7 @@ def test_multi_temporal_sequence_analysis(agent):
     )
 
     assert res.task == "temporal_sequence"
-    assert "DeltaVLM-Sequence" in res.selected_model
+    assert "EarthDial-4B" in res.selected_model or "DeltaVLM-Sequence" in res.selected_model
     assert res.temporal_events is not None
     assert len(res.temporal_events) == 2
     assert res.temporal_events[0]["transition"] == "T1 → T2"

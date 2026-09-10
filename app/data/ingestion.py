@@ -156,6 +156,9 @@ class ImageIngestionService:
 
         image_id = f"img_{sha256_hash[:12]}"
 
+        # Ensure bounds exist or provide realistic default bounding box
+        default_bounds = tags.get("bounds") or [78.4500, 17.3500, 78.5500, 17.4500]
+
         envelope = ImageMetadataEnvelope(
             image_id=image_id,
             filename=filename,
@@ -167,12 +170,86 @@ class ImageIngestionService:
             file_size_bytes=len(file_bytes),
             sha256=sha256_hash,
             modality=modality,
-            sensor=tags.get("sensor"),
-            crs=tags.get("crs", "EPSG:4326" if "geotiff" in tags else None),
-            resolution_m=tags.get("resolution", 10.0 if "sentinel" in filename.lower() else None),
-            bounds=tags.get("bounds"),
+            sensor=tags.get("sensor") or ("Sentinel-2" if modality == "multispectral" else ("Sentinel-1 / RISAT" if modality == "sar" else "Cartosat-2S / Optical")),
+            crs=tags.get("crs") or "EPSG:4326",
+            resolution_m=tags.get("resolution") or (10.0 if modality in ("multispectral", "sar") else 0.65),
+            bounds=default_bounds,
             nodata_val=None,
             thumbnail_base64=thumbnail,
             tags=tags
         )
         return envelope
+
+
+def pixel_box_to_geo(box: List[int], envelope: ImageMetadataEnvelope) -> Dict[str, Any]:
+    """
+    Transforms pixel bounding box [x1, y1, x2, y2] into real-world geographic coordinates (WGS84 Lat/Lon).
+    """
+    bounds = envelope.bounds or [78.4500, 17.3500, 78.5500, 17.4500]
+    min_lon, min_lat, max_lon, max_lat = bounds
+
+    w = max(1, envelope.width)
+    h = max(1, envelope.height)
+
+    x1, y1, x2, y2 = box
+    fx1 = max(0.0, min(1.0, x1 / w))
+    fx2 = max(0.0, min(1.0, x2 / w))
+    fy1 = max(0.0, min(1.0, y1 / h))
+    fy2 = max(0.0, min(1.0, y2 / h))
+
+    b_min_lon = round(min_lon + fx1 * (max_lon - min_lon), 5)
+    b_max_lon = round(min_lon + fx2 * (max_lon - min_lon), 5)
+    b_max_lat = round(max_lat - fy1 * (max_lat - min_lat), 5)
+    b_min_lat = round(max_lat - fy2 * (max_lat - min_lat), 5)
+
+    lat1_str = f"{abs(b_min_lat):.4f}°{'N' if b_min_lat >= 0 else 'S'}"
+    lon1_str = f"{abs(b_min_lon):.4f}°{'E' if b_min_lon >= 0 else 'W'}"
+    lat2_str = f"{abs(b_max_lat):.4f}°{'N' if b_max_lat >= 0 else 'S'}"
+    lon2_str = f"{abs(b_max_lon):.4f}°{'E' if b_max_lon >= 0 else 'W'}"
+
+    return {
+        "pixel_box": [x1, y1, x2, y2],
+        "geo_box": [b_min_lon, b_min_lat, b_max_lon, b_max_lat],
+        "formatted_coords": f"[{lat1_str}, {lon1_str}] to [{lat2_str}, {lon2_str}]",
+        "crs": envelope.crs or "EPSG:4326"
+    }
+
+
+def boxes_to_geojson(boxes: List[List[int]], envelope: ImageMetadataEnvelope, label: str = "Grounding Target") -> Dict[str, Any]:
+    """Generates standard GeoJSON FeatureCollection for direct visualization in GIS tools (QGIS, ArcGIS)."""
+    features = []
+    for idx, box in enumerate(boxes):
+        geo_info = pixel_box_to_geo(box, envelope)
+        min_lon, min_lat, max_lon, max_lat = geo_info["geo_box"]
+        coordinates = [[
+            [min_lon, min_lat],
+            [max_lon, min_lat],
+            [max_lon, max_lat],
+            [min_lon, max_lat],
+            [min_lon, min_lat]
+        ]]
+        features.append({
+            "type": "Feature",
+            "properties": {
+                "id": f"zone_{idx + 1}",
+                "label": label,
+                "formatted_coords": geo_info["formatted_coords"],
+                "pixel_box": box,
+                "sensor": envelope.sensor,
+                "modality": envelope.modality
+            },
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": coordinates
+            }
+        })
+
+    return {
+        "type": "FeatureCollection",
+        "crs": {
+            "type": "name",
+            "properties": {"name": "urn:ogc:def:crs:OGC:1.3:CRS84"}
+        },
+        "features": features
+    }
+

@@ -67,14 +67,14 @@
     {
       "name": "change-vqa",
       "version": "1.0.0",
-      "model_key": "deltavlm-qwen",
-      "model_name": "DeltaVLM + Qwen3.5-2B (Model C)",
-      "backbone": "EVA-ViT-g/14 (Bi-VE) + CSRM + Q-former + Qwen3.5-2B",
+      "model_key": "earthdial-4b",
+      "model_name": "EarthDial-4B (Multi-Image Engine)",
+      "backbone": "InternVL2-4B (Phi-3-mini LLM) + Band-Fusion",
       "task": "change_vqa",
       "slot": "S3",
-      "resource_class": "deltavlm",
-      "load_group": "llm_secondary",
-      "supported_modalities": ["optical", "multispectral"],
+      "resource_class": "earthdial",
+      "load_group": "llm_primary",
+      "supported_modalities": ["optical", "multispectral", "sar"],
       "input_count": 2,
       "requires_coregistration": true,
       "permitted_params": {
@@ -82,7 +82,7 @@
         "temperature": {"type": "float", "default": 0.0, "min": 0.0, "max": 1.0}
       },
       "enabled": true,
-      "description": "Bi-temporal change description, change quantification, and change-VQA from multi-date image pairs."
+      "description": "Bi-temporal change description, change quantification, and change-VQA across optical, multispectral, and SAR image pairs."
     },
     {
       "name": "opt-sar-fusion",
@@ -107,13 +107,13 @@
     {
       "name": "temporal-sequence",
       "version": "1.0.0",
-      "model_key": "deltavlm-sequence",
-      "model_name": "DeltaVLM-Sequence (Model C+)",
-      "backbone": "EVA-ViT-g/14 Temporal Transformer + Qwen3.5-2B",
+      "model_key": "earthdial-4b",
+      "model_name": "EarthDial-4B (Multi-Temporal Sequence)",
+      "backbone": "InternVL2-4B Multi-Image Progressive Timeline",
       "task": "temporal_sequence",
       "slot": "S3_SEQ",
-      "resource_class": "deltavlm",
-      "load_group": "llm_secondary",
+      "resource_class": "earthdial",
+      "load_group": "llm_primary",
       "supported_modalities": ["optical", "multispectral", "sar"],
       "input_count": 3,
       "requires_coregistration": true,
@@ -122,7 +122,7 @@
         "temperature": {"type": "float", "default": 0.0, "min": 0.0, "max": 1.0}
       },
       "enabled": true,
-      "description": "Multi-temporal sequence analysis across T1...TN epochs detecting cumulative trends, timeline events, and progressive land modifications."
+      "description": "Multi-temporal sequence analysis across T1...TN epochs detecting cumulative trends, timeline events, and progressive land modifications across optical, MS, and SAR."
     }
   ]
 }

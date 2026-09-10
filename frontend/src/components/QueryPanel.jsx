@@ -1,5 +1,7 @@
 import React from 'react';
 import { Send, Sparkles, CheckCircle2, AlertTriangle, ShieldCheck } from 'lucide-react';
+import DisasterPresets from './DisasterPresets.jsx';
+
 
 const EXAMPLE_QUERIES = {
   optical: [
@@ -58,7 +60,7 @@ export default function QueryPanel({
           </h2>
         </div>
         <span className="tag-pill mono" style={{ fontSize: '0.72rem' }}>
-          Agentic Planner: EarthDial / DOFA / DeltaVLM
+          Agentic Planner: EarthDial-4B / DOFA ViT
         </span>
       </div>
 
@@ -73,7 +75,14 @@ export default function QueryPanel({
         />
       </div>
 
+      {/* Thematic Disaster Quick-Scan Chips */}
+      <DisasterPresets
+        onSelectPreset={(presetQuery) => onQueryChange(presetQuery)}
+        disabled={isExecuting}
+      />
+
       <div className="query-examples-bar">
+
         <span className="example-label">Prompt Templates:</span>
         {examples.map((ex, i) => (
           <button
