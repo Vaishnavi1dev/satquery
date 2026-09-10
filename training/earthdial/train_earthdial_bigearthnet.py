@@ -205,6 +205,8 @@ def setup_model_and_tokenizer(model_name: str, use_4bit: bool = True, grad_check
             def _safe_inner_fwd(self, *args, **kwargs):
                 kwargs.pop("inputs_embeds", None)
                 kwargs.pop("task_ids", None)
+                if "pixel_values" not in kwargs and not args:
+                    kwargs["pixel_values"] = None
                 filtered = {k: v for k, v in kwargs.items() if k in sig.parameters}
                 return orig_inner_fwd(self, *args, **filtered)
             inner_cls.forward = _safe_inner_fwd
