@@ -1,7 +1,7 @@
-# Model Selection — SatQuery AI (3-Model Architecture)
+# Model Selection - SatQuery AI (3-Model Architecture)
 
 - **System:** SatQuery AI (SIH 2026 PS 26167, ISRO)
-- **Status:** v1.0 — 3-model stack selection
+- **Status:** v1.0 - 3-model stack selection
 - **Date:** 2026-09-08
 
 ---
@@ -29,7 +29,7 @@
 
 ## 3. Model Details
 
-### 3.1 Model A — EarthDial-4B (S1, S2)
+### 3.1 Model A - EarthDial-4B (S1, S2)
 
 | Aspect | Detail |
 |--------|--------|
@@ -37,14 +37,14 @@
 | **Weights** | HF: akshaydudhane/EarthDial_4B_RGB, EarthDial_4B_MS, EarthDial_4B_Methane_UHI |
 | **Base** | InternVL2-4B (Phi-3-mini 3.8B LLM, MIT) |
 | **Modality** | RGB, Multispectral (NIR via band-fusion), SAR, Bi-temporal sequences |
-| **License** | Code: MIT. **HF weight license: UNVERIFIED — must confirm before use** |
+| **License** | Code: MIT. **HF weight license: UNVERIFIED - must confirm before use** |
 | **Training Data** | 11.11M instruction pairs across 44 downstream datasets |
 | **Published Perf** | Outperforms generic/RS VLMs across modalities; e.g., SAR/methane 77.09% vs GPT-4o 40.93% |
 | **Compute** | 4B bf16 ≈ 8.4 GB; int8 ≈ 4.2 GB + overhead. Fits single-GPU cloud budget in int8. |
 | **Adaptation Recipe** | LoRA (r=16–32) on LLM + projector; freeze ViT. Data mix: BEN.txt train+val (captions, binary/MCQ VQA, RED) + VRSBench train. Multi-sensor input formatting per EarthDial's band-fusion module. |
 | **Gate** | BEN.txt benchmark split: binary VQA ≥70%, caption BLEU-4 ≥30; VRSBench-train holdout caption BLEU-1 ≥45 |
 
-### 3.2 Model B — DOFA Encoder + Fusion Head (S4)
+### 3.2 Model B - DOFA Encoder + Fusion Head (S4)
 
 | Aspect | Detail |
 |--------|--------|
@@ -59,16 +59,16 @@
 | **Trainable Head** | Lightweight projection (MLP) + cross-attention fusion → text decoder (EarthDial LLM or separate small LLM). Trained on BEN.txt paired annotations (captions, VQA, RED on S1+S2 pairs). |
 | **Gate** | BEN.txt benchmark split (S4 tasks): joint captioning/VQA quality vs Model A solo; fusion ablation. |
 
-### 3.3 Model C — DeltaVLM + Qwen3.5-2B (S3)
+### 3.3 Model C - DeltaVLM + Qwen3.5-2B (S3)
 
 | Aspect | Detail |
 |--------|--------|
 | **Repo** | https://github.com/hanlinwu/DeltaVLM |
 | **Paper** | DeltaVLM: Interactive RS Image Change Analysis via Instruction-Guided Difference Perception (Remote Sensing 2026, arXiv:2507.22346) |
-| **Original LLM** | Vicuna-7B (LLaMA-2 lineage) — **NON-COMMERCIAL LICENSE** |
-| **Our LLM** | **Qwen3.5-2B (Apache-2.0)** — license-compliant swap |
+| **Original LLM** | Vicuna-7B (LLaMA-2 lineage) - **NON-COMMERCIAL LICENSE** |
+| **Our LLM** | **Qwen3.5-2B (Apache-2.0)** - license-compliant swap |
 | **Architecture** | 1) Bi-temporal Vision Encoder (Bi-VE): EVA-ViT-g/14, selective FT (last 2 blocks). 2) Instruction-guided Difference Perception Module (IDPM): CSRM + Q-former. 3) LLM decoder (frozen). |
-| **Training Data** | ChangeChat-105k (105K instructions on LEVIR-CC bi-temporal pairs): 6 tasks — captioning, binary classification, quantification, localization, open QA, multi-turn dialogue. |
+| **Training Data** | ChangeChat-105k (105K instructions on LEVIR-CC bi-temporal pairs): 6 tasks - captioning, binary classification, quantification, localization, open QA, multi-turn dialogue. |
 | **License (Ours)** | Code: Apache-2.0 (repo). Dataset: ChangeChat-105k (CC-BY-4.0 per HF). Qwen3.5-2B: Apache-2.0. **All compliant.** |
 | **Compute** | EVA-ViT-g ≈ 1.2B (≈2.4 GB); Q-former ≈ 0.1B; Qwen3.5-2B ≈ 2B (≈4.8 GB bf16). Total bf16 ≈ 7.5 GB. Int8 ≈ 4 GB. Fits budget. |
 | **Adaptation Recipe** | LoRA on Qwen3.5-2B (r=16–32, α=32); selective FT Bi-VE last 2 blocks; FT Q-former. Freeze Qwen3.5-2B. Data: ChangeChat-105k train (87,935 samples). |
@@ -111,7 +111,7 @@
 
 - **Two LLM backbones**: EarthDial's Phi-3-mini (for S1/S2/S4 text generation) + Qwen3.5-2B (for S3 change-VQA).
 - **One shared vision encoder for S4**: DOFA (frozen) extracts features; EarthDial's LLM decodes.
-- **No single generic VLM** — satisfies PRD-CON-008 / AML-002.
+- **No single generic VLM** - satisfies PRD-CON-008 / AML-002.
 
 ---
 
@@ -133,7 +133,7 @@
 | EarthDial-4B (Model A) | 4B | ~8.4 GB | ~4.2 GB | Cloud GPU (int8 resident) |
 | DOFA ViT-B + Head (Model B) | ~100M | ~0.5 GB | ~0.3 GB | Co-resident (negligible) |
 | DeltaVLM+Qwen3.5-2B (Model C) | ~3.3B | ~7.5 GB | ~4 GB | Cloud GPU (int8 resident) |
-| **Total (int8 co-resident)** | — | — | **~8.5 GB** | Fits ≤16 GB GPU with headroom |
+| **Total (int8 co-resident)** | - | - | **~8.5 GB** | Fits ≤16 GB GPU with headroom |
 
 **Serving strategy:** Lazy load/evict per query plan (TRD §12). Both LLMs never resident simultaneously in bf16; int8 co-residency fits small GPU budget.
 
@@ -144,9 +144,9 @@
 1. **TBD-001:** EarthDial HF weight license confirmation (blocker for Model A primary).
 2. **TBD-002:** DeltaVLM Bi-VE + Q-former weight availability on HF (currently only code + dataset; weights may need reproduction).
 3. **TBD-003:** DOFA ViT-B vs ViT-L choice for S4 (trade-off: quality vs VRAM; ViT-B likely sufficient for frozen encoder).
-4. **TBD-004:** Whether Model A (EarthDial) single-image VQA on SAR matches RSVQA-HR distribution (aerial RGB) — may need RSVQA-HR train in mix.
-5. **TBD-005:** Exact CDVQA test split protocol (test1 vs test2 vs both) — pin from benchmark release.
-6. **TBD-006:** Sensor profile for Cartosat-2S (optical) + RISAT (SAR) — needed for DOFA wavelength inputs and EarthDial band-fusion.
+4. **TBD-004:** Whether Model A (EarthDial) single-image VQA on SAR matches RSVQA-HR distribution (aerial RGB) - may need RSVQA-HR train in mix.
+5. **TBD-005:** Exact CDVQA test split protocol (test1 vs test2 vs both) - pin from benchmark release.
+6. **TBD-006:** Sensor profile for Cartosat-2S (optical) + RISAT (SAR) - needed for DOFA wavelength inputs and EarthDial band-fusion.
 
 ---
 
@@ -159,4 +159,4 @@
 | **S3 Change-VQA (Model C)** | **DeltaVLM (Bi-VE + IDPM + Q-former) + Qwen3.5-2B** (LoRA on ChangeChat-105k) | Apache-2.0 (all) | SOTA on RSICA (ChangeChat); purpose-built for bi-temporal interactive VQA |
 | **Controller** | Deterministic task classifier + registry router (no neural model) | n/a | TRD §8 determinism-first |
 
-**If EarthDial weight license blocks:** Fallback to **InternVL3-1B + BEN.txt multi-sensor LoRA** (Model_Selection.md primary) — same slots, cleaner license, smaller (1B), but requires full reproduction of RS-InternVL recipe.
+**If EarthDial weight license blocks:** Fallback to **InternVL3-1B + BEN.txt multi-sensor LoRA** (Model_Selection.md primary) - same slots, cleaner license, smaller (1B), but requires full reproduction of RS-InternVL recipe.

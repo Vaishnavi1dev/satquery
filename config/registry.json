@@ -103,6 +103,26 @@
       },
       "enabled": true,
       "description": "Cross-modal joint extraction fusing co-registered optical/multispectral and SAR imagery."
+    },
+    {
+      "name": "temporal-sequence",
+      "version": "1.0.0",
+      "model_key": "deltavlm-sequence",
+      "model_name": "DeltaVLM-Sequence (Model C+)",
+      "backbone": "EVA-ViT-g/14 Temporal Transformer + Qwen3.5-2B",
+      "task": "temporal_sequence",
+      "slot": "S3_SEQ",
+      "resource_class": "deltavlm",
+      "load_group": "llm_secondary",
+      "supported_modalities": ["optical", "multispectral", "sar"],
+      "input_count": 3,
+      "requires_coregistration": true,
+      "permitted_params": {
+        "max_new_tokens": {"type": "int", "default": 384, "min": 1, "max": 1024},
+        "temperature": {"type": "float", "default": 0.0, "min": 0.0, "max": 1.0}
+      },
+      "enabled": true,
+      "description": "Multi-temporal sequence analysis across T1...TN epochs detecting cumulative trends, timeline events, and progressive land modifications."
     }
   ]
 }

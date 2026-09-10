@@ -41,6 +41,7 @@ class TraceView(BaseModel):
     total_duration_ms: float = 0.0
     status: str = "RUNNING"  # RUNNING, COMPLETED, FAILED
     steps: List[TraceStep] = Field(default_factory=list)
+    execution_trace: List[str] = Field(default_factory=list)
     confidence: Optional[float] = None
     error_message: Optional[str] = None
 
@@ -128,6 +129,8 @@ class EventStream:
         created_at = self.events[0].timestamp if self.events else datetime.now(timezone.utc).isoformat()
         completed_at = self.events[-1].timestamp if overall_status in ("COMPLETED", "FAILED") else None
 
+        human_trace = self.to_human_trace()
+
         return TraceView(
             trace_id=self.trace_id,
             session_id=self.session_id,
@@ -140,6 +143,61 @@ class EventStream:
             total_duration_ms=round(total_ms, 2),
             status=overall_status,
             steps=steps,
+            execution_trace=human_trace,
             confidence=confidence,
             error_message=error_msg
         )
+
+    def to_human_trace(self) -> List[str]:
+        """Converts internal structured trace events into human-readable execution steps."""
+        trace_lines = []
+        for evt in self.events:
+            p = evt.payload
+            et = evt.event_type
+            if et == "TRACE_STARTED":
+                count = p.get("image_count", 1)
+                trace_lines.append(f"Session initialized with {count} input image{'s' if count != 1 else ''}")
+            elif et == "TASK_CLASSIFIED":
+                task = p.get("task", "")
+                if task == "opt_sar_fusion":
+                    trace_lines.append("Detected cross-modal optical/multi-spectral + SAR pair")
+                elif task == "change_vqa":
+                    trace_lines.append("Detected bi-temporal pair")
+                elif task == "grounding":
+                    trace_lines.append("Detected text-guided region grounding task")
+                elif task == "caption":
+                    trace_lines.append("Detected remote sensing scene captioning task")
+                else:
+                    trace_lines.append(f"Detected visual question answering ({task})")
+            elif et == "INPUTS_VALIDATED":
+                trace_lines.append("Input validated")
+            elif et == "TOOL_SELECTED":
+                model_name = p.get("model_name", p.get("tool_name", "specialist"))
+                trace_lines.append(f"Selected {model_name}")
+            elif et == "TOOL_INVOKED":
+                model_name = p.get("model_name", p.get("tool_name", "tool"))
+                trace_lines.append(f"Executed specialist model: {model_name}")
+            elif et == "MODALITY_FEATURE_EXTRACTED":
+                modality = p.get("modality", "sensor")
+                trace_lines.append(f"Extracted {modality} features")
+            elif et == "CROSS_MODAL_FUSION":
+                trace_lines.append("Performed cross-modal fusion")
+            elif et == "TEMPORAL_COMPARISON":
+                trace_lines.append("Compared T1 and T2")
+            elif et == "CHANGE_EVIDENCE_EXTRACTED":
+                trace_lines.append("Extracted change evidence")
+            elif et == "OUTPUT_AGGREGATED":
+                trace_lines.append("Aggregated specialist outputs and structured evidence")
+            elif et == "EVIDENCE_RENDERED":
+                trace_lines.append("Rendered visual evidence overlay")
+            elif et == "QUERY_COMPLETED":
+                trace_lines.append("Generated final result")
+            elif et == "QUERY_FAILED":
+                trace_lines.append(f"Execution failed: {p.get('error', 'Unknown error')}")
+
+        # Deduplicate consecutive identical messages
+        deduped = []
+        for line in trace_lines:
+            if not deduped or deduped[-1] != line:
+                deduped.append(line)
+        return deduped

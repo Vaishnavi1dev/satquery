@@ -1,4 +1,4 @@
-"""Builds training/model_c/train_deltavlm_qwen.ipynb — IMP-035 Model C fine-tune notebook.
+"""Builds training/model_c/train_deltavlm_qwen.ipynb - IMP-035 Model C fine-tune notebook.
 
 Run:  python training/model_c/build_notebook.py
 Output: training/model_c/train_deltavlm_qwen.ipynb
@@ -28,7 +28,7 @@ CELLS = []
 
 # ----------------------------------------------------------------------------
 CELLS.append(md(
-"""# IMP-035 — Model C Fine-Tune: DeltaVLM + Qwen3.5-2B on ChangeChat-105k
+"""# IMP-035 - Model C Fine-Tune: DeltaVLM + Qwen3.5-2B on ChangeChat-105k
 
 **Task:** FT-C per `docs/Implementation_Plan.md` IMP-035 / `docs/Model_Selection.md` §3.3
 **Architecture:** Bi-VE (EVA-ViT-g/14, selective FT last 2 blocks) + IDPM (CSRM + Q-former, FT) + Qwen3.5-2B (frozen, LoRA r=16, α=32)
@@ -37,16 +37,16 @@ CELLS.append(md(
 
 **License posture (all compliant):** DeltaVLM code Apache-2.0 · ChangeChat-105k annotations CC-BY-4.0 ·
 Qwen3.5-2B Apache-2.0 · LEVIR-CC imagery under its own (free) license, not redistributed by us.
-Do **not** train with the repo's original Vicuna-7B weights (non-commercial) — this notebook swaps in Qwen.
+Do **not** train with the repo's original Vicuna-7B weights (non-commercial) - this notebook swaps in Qwen.
 
 **Recorded implementation notes (see `docs/Decision_Log.md`):**
 1. `Qwen/Qwen3.5-2B` on the Hub is a VLM-family checkpoint (`Qwen3_5ForConditionalGeneration`).
-   We use `Qwen/Qwen3.5-2B-Base` and unwrap its **text LM submodule** as the frozen causal decoder —
+   We use `Qwen/Qwen3.5-2B-Base` and unwrap its **text LM submodule** as the frozen causal decoder -
    the faithful realization of "Qwen3.5-2B (Apache-2.0)" as DeltaVLM's LLM. `config/model_profiles.yaml`
-   pins `Qwen2.5-1.5B/3B-Instruct` (stale vs the doc) — kept as the automatic fallback, not silently resolved.
+   pins `Qwen2.5-1.5B/3B-Instruct` (stale vs the doc) - kept as the automatic fallback, not silently resolved.
 2. ChangeChat-105k has **no official `val` split** on HF (train + 6 test files only). IMP-035's gate
    ("val: caption CIDEr ≥ baseline; binary Acc ≥90%") is measured on the shipped **test** files
-   (`changechat_105k_test_binary.json`, `changechat_105k_test.json`) — recorded, no tuning.
+   (`changechat_105k_test_binary.json`, `changechat_105k_test.json`) - recorded, no tuning.
    The CDVQA test1/test2 dry-run stays in IMP-037 (measurement only) and is NOT part of this notebook.
 
 **Repo baseline:** code is reused from `third_party/DeltaVLM` (cloned from https://github.com/hanlinwu/DeltaVLM).
@@ -58,7 +58,7 @@ The stock `train.py`/configs are wired to Vicuna-7B + `transformers==4.33.2`; th
 CELLS.append(md(
 """## 0. Runtime & paths
 
-Auto-detects Colab / Kaggle / local. All paths below flow from one CONFIG dict — edit that dict only.
+Auto-detects Colab / Kaggle / local. All paths below flow from one CONFIG dict - edit that dict only.
 Outputs (adapters, checkpoints, lineage) land in `OUTPUT_DIR`; artifacts are self-contained for IMP-036 import.
 """))
 
@@ -86,7 +86,7 @@ CFG = dict(
     output_dir=os.path.join(BASE, "satquery_models", "model_c"),  # checkpoints + lineage
     # --- LLM decoder (Model_Selection §3.3: Qwen3.5-2B, Apache-2.0) ---
     llm_backbone="Qwen/Qwen3.5-2B-Base",      # text backbone of the Qwen3.5-2B family (unwrap language_model)
-    llm_fallback="Qwen/Qwen2.5-3B-Instruct",  # config/model_profiles.yaml pin — used only if primary fails
+    llm_fallback="Qwen/Qwen2.5-3B-Instruct",  # config/model_profiles.yaml pin - used only if primary fails
     # --- LoRA on Qwen (r=16-32, alpha=32 per IMP-035) ---
     lora_r=16,
     lora_alpha=32,
@@ -129,6 +129,10 @@ CFG = dict(
     push_to_hub=True,
     hf_repo="VMamidala/satquery-model-c-deltavlm-qwen",  # your HF repo (private, auto-created)
     hf_token_secret="HF_TOKEN",
+    save_steps=500,        # overwrite ckpt_latest & push to HF every 500 steps (None = epoch only)
+    resume_from_hf=True,   # pull ckpt_latest from CFG['hf_repo'] before training
+    resume_checkpoint_dir=None, # local dir to resume weights from (or set by resume_from_hf)
+    start_step=1300,       # step number to resume from (skips seen batches and advances scheduler)
     # --- multi-GPU ---
     use_ddp=True,      # use ALL visible GPUs (Kaggle '2x T4 GPU') via torchrun; False = single GPU
     ddp_done=False,    # set True by the DDP cell after a successful torchrun run
@@ -158,7 +162,7 @@ print(f"free disk: {gb.free/1e9:.1f} GB (need ~15 GB for weights+data)")
 CELLS.append(md(
 """## 1. Install dependencies
 
-**Do NOT** `pip install -r third_party/DeltaVLM/requirements.txt` — it pins `transformers==4.33.2`,
+**Do NOT** `pip install -r third_party/DeltaVLM/requirements.txt` - it pins `transformers==4.33.2`,
 which breaks Qwen loading. Install the modern stack below (Qwen3.5 needs a current transformers).
 If the vendored `model/Qformer.py` import fails on a bleeding-edge transformers release, pin
 `transformers==4.46.3` and re-run this cell.
@@ -218,7 +222,7 @@ if not os.path.isdir(os.path.join(DELTA, "model")):
 sys.path.insert(0, DELTA)
 sys.path.insert(0, os.path.dirname(DELTA))   # so `import utils` (DeltaVLM root) resolves
 
-# The vendored code loads bert-base-uncased from "../bert-base-uncased" — a path RELATIVE TO CWD.
+# The vendored code loads bert-base-uncased from "../bert-base-uncased" - a path RELATIVE TO CWD.
 # chdir into the repo so that resolves to <parent>/bert-base-uncased (downloaded in the next cell).
 # All notebook paths are absolute, so this is safe.
 os.chdir(DELTA)
@@ -235,7 +239,7 @@ CFG["deltavlm_commit"] = sha
 
 # ----------------------------------------------------------------------------
 CELLS.append(code(
-"""# timm compatibility shim — the vendored code was written against timm 0.4.12
+"""# timm compatibility shim - the vendored code was written against timm 0.4.12
 # (`import timm.models.hub`, `from timm.models.layers import drop_path, to_2tuple, trunc_normal_`).
 # This makes those imports resolve on any modern timm, and implements the hub downloader directly.
 import types
@@ -287,7 +291,7 @@ print("timm shim OK")
 
 # ----------------------------------------------------------------------------
 CELLS.append(code(
-"""# Vendored LAVIS Qformer compat shim — model/Qformer.py was written against transformers 4.x, which
+"""# Vendored LAVIS Qformer compat shim - model/Qformer.py was written against transformers 4.x, which
 # exported apply_chunking_to_forward etc. from transformers.modeling_utils. Newer transformers (5.x,
 # required for Qwen3.5) removed some of them. Inject compatible fallbacks before importing the model.
 import torch
@@ -446,7 +450,7 @@ _add_method(_BertPreTrainedModel, "invert_attention_mask", _invert_attention_mas
 # ----------------------------------------------------------------------------
 CELLS.append(code(
 """# The vendored Blip2Base loads bert-base-uncased + the Q-former from the LOCAL path
-# "../bert-base-uncased" relative to the DeltaVLM dir — download it there once.
+# "../bert-base-uncased" relative to the DeltaVLM dir - download it there once.
 from huggingface_hub import snapshot_download
 
 bert_dir = os.path.join(os.path.dirname(CFG["deltavlm_dir"]), "bert-base-uncased")
@@ -458,10 +462,10 @@ print("bert-base-uncased:", len(os.listdir(bert_dir)), "files")
 
 # ----------------------------------------------------------------------------
 CELLS.append(md(
-"""## 2. Data — ChangeChat-105k (annotations) + LEVIR-CC (images)
+"""## 2. Data - ChangeChat-105k (annotations) + LEVIR-CC (images)
 
-- Annotations: `hlwu/changechat-105k` (CC-BY-4.0, ~83 MB) — all JSONs, incl. the 87,935-sample train file.
-- Images: `lcybuaa/LEVIR-CC` (the **official authors'** distribution — also linked from the LEVIR-CC
+- Annotations: `hlwu/changechat-105k` (CC-BY-4.0, ~83 MB) - all JSONs, incl. the 87,935-sample train file.
+- Images: `lcybuaa/LEVIR-CC` (the **official authors'** distribution - also linked from the LEVIR-CC
   README; Google Drive/Baidu are the alternates). Single `Levir-CC-dataset.zip` (~2.7 GB) containing
   `images/{train,val,test}/{A,B}/` bitemporal tiles. Layout is auto-detected after unzip.
 """))
@@ -549,7 +553,7 @@ CELLS.append(md(
 """## 3. Dataset + processors (reusing the repo's classes)
 
 `CaptionDataset` (from DeltaVLM `dataset.py`) expands each record's `conversations` into
-(question, answer) training instances — exactly the repo's training pipeline. Processors:
+(question, answer) training instances - exactly the repo's training pipeline. Processors:
 `Blip2ImageTrainProcessor` (224 px) for images and `BlipCaptionProcessor` for text.
 """))
 
@@ -577,7 +581,7 @@ print("text_output:", s["text_output"][:80])
 
 # ----------------------------------------------------------------------------
 CELLS.append(md(
-"""## 4. Model — Qwen-adapted DeltaVLM
+"""## 4. Model - Qwen-adapted DeltaVLM
 
 Reuses from the vendored code, unmodified:
 - `Blip2Base.init_vision_encoder` → EVA-ViT-g/14 (pretrained `eva_vit_g.pth`, auto-downloaded via timm shim)
@@ -590,7 +594,7 @@ Replaces the Vicuna-7B (non-commercial) decoder with **Qwen3.5-2B-Base, frozen +
 - Forward/generate flows are copied verbatim from `model/blip2_vicua.py`: train forward = concatenated
   bi-temporal features through the Q-former (text-conditioned), projected by `llm_proj` and prepended to
   the LLM's token embeddings; `generate` additionally applies the CSRM difference-perception layers
-  (context/gate) before the Q-former — matching the authors' code exactly.
+  (context/gate) before the Q-former - matching the authors' code exactly.
 """))
 
 # ----------------------------------------------------------------------------
@@ -599,7 +603,7 @@ CELLS.append(code(
 from transformers import AutoTokenizer, AutoModelForCausalLM
 try:
     from transformers import AutoModelForImageTextToText
-except Exception:  # older transformers — will fall back to AutoModel
+except Exception:  # older transformers - will fall back to AutoModel
     AutoModelForImageTextToText = None
 from peft import LoraConfig, get_peft_model
 import torch.nn as nn
@@ -665,13 +669,13 @@ class DeltaVLMQwen(Blip2Base):
         # 1) Q-former-side BERT tokenizer ([DEC] added, as in the repo)
         self.tokenizer = self.init_tokenizer(truncation_side="left")
 
-        # 2) Bi-temporal vision encoder — EVA-ViT-g/14, selective FT on the last 2 blocks.
+        # 2) Bi-temporal vision encoder - EVA-ViT-g/14, selective FT on the last 2 blocks.
         # create_eva_vit_g loads fp16; the repo's `.float()` then undoes that and costs ~2.4 GB,
         # which OOMs a 16 GB T4. Keep the ViT in the training dtype instead (fp16 on T4 / bf16 on
-        # A100) — the forward runs under autocast, so fp32 params are not needed.
+        # A100) - the forward runs under autocast, so fp32 params are not needed.
         self.visual_encoder, self.ln_vision = self.init_vision_encoder(
             "eva_clip_g", cfg["img_size"], 0.0, False, "fp16")
-        # NOTE: use_grad_checkpoint (last arg) is hardcoded False — the vendored EVA-ViT calls
+        # NOTE: use_grad_checkpoint (last arg) is hardcoded False - the vendored EVA-ViT calls
         # torch.utils.checkpoint with legacy reentrant semantics, which raises CheckpointError on
         # backward with modern torch (saved/recomputed tensor counts diverge). The ViT's activations
         # are only ~0.3-0.5 GB, so materializing them costs far less than fighting that bug.
@@ -901,11 +905,51 @@ class DeltaVLMQwen(Blip2Base):
 
         out = self.llm_tokenizer.batch_decode(outputs, skip_special_tokens=True)
         return [t.strip() for t in out]
+
+    def load_checkpoint(self, ckpt_dir):
+        \"\"\"Load fine-tuned weights from a saved checkpoint folder.\"\"\"
+        import os, torch
+        from peft import set_peft_model_state_dict
+        from safetensors.torch import load_file
+
+        lora_dir = os.path.join(ckpt_dir, "qwen_lora")
+        sf_path = os.path.join(lora_dir, "adapter_model.safetensors")
+        bin_path = os.path.join(lora_dir, "adapter_model.bin")
+        if os.path.exists(sf_path):
+            set_peft_model_state_dict(self.llm_model, load_file(sf_path))
+            print(f"[load_ckpt] loaded LoRA adapter from {sf_path}")
+        elif os.path.exists(bin_path):
+            set_peft_model_state_dict(self.llm_model, torch.load(bin_path, map_location="cpu"))
+            print(f"[load_ckpt] loaded LoRA adapter from {bin_path}")
+
+        ve_pt = os.path.join(ckpt_dir, "bi_ve_finetuned.pt")
+        if os.path.exists(ve_pt):
+            s1 = torch.load(ve_pt, map_location="cpu")
+            self.visual_encoder.load_state_dict(s1["visual_encoder"], strict=False)
+            self.ln_vision.load_state_dict(s1["ln_vision"])
+            print(f"[load_ckpt] loaded bi_ve from {ve_pt}")
+
+        qf_pt = os.path.join(ckpt_dir, "q_former_finetuned.pt")
+        if os.path.exists(qf_pt):
+            s2 = torch.load(qf_pt, map_location="cpu")
+            self.Qformer.load_state_dict(s2["Qformer"])
+            self.query_tokens.data.copy_(s2["query_tokens"])
+            print(f"[load_ckpt] loaded Qformer & query_tokens from {qf_pt}")
+
+        proj_pt = os.path.join(ckpt_dir, "llm_proj.pt")
+        if os.path.exists(proj_pt):
+            s3 = torch.load(proj_pt, map_location="cpu")
+            self.llm_proj.load_state_dict(s3["llm_proj"])
+            for n in ("context1", "context2", "gate1", "gate2", "context3"):
+                getattr(self, n).load_state_dict(s3[n])
+            print(f"[load_ckpt] loaded llm_proj & CSRM layers from {proj_pt}")
 """))
 
 # ----------------------------------------------------------------------------
 CELLS.append(code(
 """model = DeltaVLMQwen(CFG)
+if CFG.get("resume_checkpoint_dir") and os.path.exists(CFG["resume_checkpoint_dir"]):
+    model.load_checkpoint(CFG["resume_checkpoint_dir"])
 model = model.cuda() if torch.cuda.is_available() else model
 
 # trainable-parameter census per component (for the lineage record)
@@ -948,7 +992,7 @@ if CFG["init_from_deltavlm_ckpt"]:
     keep = [k for k in msg.missing_keys if not k.startswith("llm_") and "llm_proj" not in k]
     print("non-llm missing (e.g. query_tokens shapes):", keep[:10])
 else:
-    print("init_from_deltavlm_ckpt is OFF — training from pretrained EVA-ViT-g + BERT-initialized Q-former")
+    print("init_from_deltavlm_ckpt is OFF - training from pretrained EVA-ViT-g + BERT-initialized Q-former")
 """))
 
 # ----------------------------------------------------------------------------
@@ -974,28 +1018,28 @@ CELLS.append(code(
         gen = model.generate({"image_A": batch["image_A"], "image_B": batch["image_B"],
                               "prompt": batch["text_input"]})
     print("generated:", gen)
-    print("SMOKE TEST OK — set smoke_test=False and restart from the CONFIG cell to train.")
+    print("SMOKE TEST OK - set smoke_test=False and restart from the CONFIG cell to train.")
     raise SystemExit(0)
-print("smoke_test is off — proceeding to training")
+print("smoke_test is off - proceeding to training")
 """))
 
 # ----------------------------------------------------------------------------
 CELLS.append(md(
 """## 6. Training loop (IMP-035)
 
-AdamW (wd=0.05, no decay on bias/LN) + linear-warmup cosine LR (init 1e-5, warmup 1000 steps — the repo's
+AdamW (wd=0.05, no decay on bias/LN) + linear-warmup cosine LR (init 1e-5, warmup 1000 steps - the repo's
 schedule), gradient clipping 1.0, bf16 autocast on A100 / fp16+scaler on T4, gradient accumulation to
 effective batch 32. **One rolling checkpoint per epoch**: `ckpt_latest/` is written after every epoch and
 overwritten (final state after the last epoch). With `push_to_hub=True` (default) it is also **uploaded to
-your private HF repo right after each epoch** — same paths every time, so files are overwritten there too,
+your private HF repo right after each epoch** - same paths every time, so files are overwritten there too,
 never duplicated (costs a few minutes of upload per ~3 GB epoch checkpoint). Each checkpoint contains:
 `qwen_lora/` (PEFT adapter + tokenizer), `bi_ve_finetuned.pt`, `q_former_finetuned.pt`, `llm_proj.pt`
-(including the CSRM layers) — the modular layout expected by IMP-036 registry import.
+(including the CSRM layers) - the modular layout expected by IMP-036 registry import.
 """))
 
 # ----------------------------------------------------------------------------
 CELLS.append(code(
-"""# HF Hub upload helper — called after EVERY epoch checkpoint save (same files overwritten on HF).
+"""# HF Hub upload helper - called after EVERY epoch checkpoint save (same files overwritten on HF).
 from huggingface_hub import HfApi
 
 
@@ -1048,7 +1092,7 @@ def upload_to_hf(tag="", allow_patterns=None):
     return True
 
 
-# probe once so a missing token/repo id fails fast — before hours of training
+# probe once so a missing token/repo id fails fast - before hours of training
 _probe_token = get_hf_token()
 if CFG["push_to_hub"] and _probe_token and "<your_hf_username>" not in CFG["hf_repo"]:
     try:
@@ -1062,6 +1106,32 @@ if CFG["push_to_hub"] and _probe_token and "<your_hf_username>" not in CFG["hf_r
 else:
     print("WARNING: HF uploads will be SKIPPED during training. Set the 'HF_TOKEN' secret and")
     print("edit CFG['hf_repo'] in the CONFIG cell to enable them.")
+"""))
+
+# ----------------------------------------------------------------------------
+CELLS.append(code(
+"""# Optional: Download checkpoint from Hugging Face Hub to resume training
+if CFG.get("resume_from_hf") and CFG.get("hf_repo"):
+    from huggingface_hub import snapshot_download
+    token = get_hf_token()
+    print(f"Resuming: checking/downloading ckpt_latest from {CFG['hf_repo']} ...")
+    try:
+        snapshot_download(
+            repo_id=CFG["hf_repo"],
+            allow_patterns=["ckpt_latest/**"],
+            local_dir=CFG["output_dir"],
+            token=token,
+        )
+        CFG["resume_checkpoint_dir"] = os.path.join(CFG["output_dir"], "ckpt_latest")
+        print("Resumed checkpoint downloaded successfully to:", CFG["resume_checkpoint_dir"])
+        if "model" in globals() and model is not None:
+            model.load_checkpoint(CFG["resume_checkpoint_dir"])
+    except Exception as e:
+        print("HF checkpoint download failed (will train without resume):", e)
+elif CFG.get("resume_checkpoint_dir") and os.path.exists(CFG["resume_checkpoint_dir"]):
+    print("Resuming from local directory:", CFG["resume_checkpoint_dir"])
+    if "model" in globals() and model is not None:
+        model.load_checkpoint(CFG["resume_checkpoint_dir"])
 """))
 
 # ----------------------------------------------------------------------------
@@ -1095,7 +1165,8 @@ if WORLD > 1:
         "lora_r", "lora_alpha", "lora_dropout", "lora_targets",
         "grad_checkpoint", "dtype", "batch_size", "accum_steps", "max_epochs",
         "init_lr", "min_lr", "warmup_steps", "weight_decay", "grad_clip",
-        "seed", "num_workers", "data_subset", "llm_backbone", "llm_fallback")}
+        "seed", "num_workers", "data_subset", "llm_backbone", "llm_fallback",
+        "save_steps", "resume_checkpoint_dir", "start_step")}
     _cfg["vit_blocks_trainable"] = sorted(CFG["vit_blocks_trainable"])
     _cfg["world_size"] = WORLD
     _cfg["push_to_hub"] = CFG.get("push_to_hub", False)
@@ -1211,12 +1282,23 @@ else:
         print(f"[save] {tag} -> {d}")
 
     model.train()
-    opt_step, running_loss, t0 = 0, 0.0, time.time()
-    seen = 0
-    pbar = tqdm(total=total_steps, desc="optimizer steps")
+    start_step = CFG.get("start_step", 0)
+    for _ in range(start_step):
+        scheduler.step()
+    opt_step = start_step
+    seen = start_step * CFG["accum_steps"]
+    skip_batches = seen
+    running_loss, t0 = 0.0, time.time()
+    pbar = tqdm(total=total_steps, initial=start_step, desc="optimizer steps")
+    if start_step > 0:
+        print(f"Resuming directly from step {start_step}/{total_steps} (skipping {skip_batches} batches)")
     try:
         for epoch in range(1, CFG["max_epochs"] + 1):
+            batch_idx = 0
             for batch in loader:
+                batch_idx += 1
+                if batch_idx <= skip_batches:
+                    continue
                 batch = {k: (v.cuda() if isinstance(v, torch.Tensor) else v) for k, v in batch.items()}
                 with torch.autocast("cuda", dtype=model.amp_dtype, enabled=torch.cuda.is_available()):
                     loss = model(batch)["loss"] / CFG["accum_steps"]
@@ -1236,6 +1318,10 @@ else:
                     if opt_step % 10 == 0:
                         pbar.set_postfix(loss=f"{running_loss/10:.3f}", lr=f"{scheduler.get_last_lr()[0]:.2e}")
                         running_loss = 0.0
+                    # Periodic step checkpointing: overwrite ckpt_latest and push to HF
+                    if CFG.get("save_steps") and opt_step % CFG["save_steps"] == 0:
+                        save_checkpoint(model, CFG["output_dir"], "ckpt_latest")
+                        upload_to_hf(tag=f"step {opt_step}", allow_patterns=["ckpt_latest/**"])
             # flush leftover accumulated gradients at the end of the epoch
             if seen % CFG["accum_steps"] != 0:
                 scaler.unscale_(optimizer)
@@ -1264,12 +1350,12 @@ else:
 
 # ----------------------------------------------------------------------------
 CELLS.append(md(
-"""## 7. Gate evaluation (IMP-035) — ChangeChat-105k test splits
+"""## 7. Gate evaluation (IMP-035) - ChangeChat-105k test splits
 
 - **Binary change classification Acc ≥ 90%** on `changechat_105k_test_binary.json` (1,929 samples),
   greedy generation, answer parsed to yes/no and compared against `changeflag`.
 - **Captioning CIDEr ≥ baseline** (+ BLEU-4) on a subset of `changechat_105k_test.json` (5 refs/pair)
-  using the repo's vendored scorers. Baseline = DeltaVLM paper number — pin it before declaring the gate
+  using the repo's vendored scorers. Baseline = DeltaVLM paper number - pin it before declaring the gate
   passed (no tuning). Recorded in the lineage file.
 """))
 
@@ -1301,7 +1387,7 @@ else:
 
 # ----------------------------------------------------------------------------
 CELLS.append(code(
-"""# Binary classification Acc — full run (greedy) on ChangeChat-105k test_binary (1,929 samples).
+"""# Binary classification Acc - full run (greedy) on ChangeChat-105k test_binary (1,929 samples).
 import json
 from PIL import Image
 
@@ -1391,7 +1477,7 @@ hyps = [res[k] for k in res]
 cider_score, _ = Cider().compute_score(refs, hyps)
 bleu_score, _ = Bleu(4).compute_score(refs, hyps)
 print(f"CIDEr = {cider_score:.4f} | BLEU-4 = {bleu_score[-1]:.4f} (n={len(gts)})")
-print("baseline (DeltaVLM paper): pin before declaring gate — record, do NOT tune")
+print("baseline (DeltaVLM paper): pin before declaring gate - record, do NOT tune")
 CFG["gate_cider"] = round(float(cider_score), 4)
 CFG["gate_bleu4"] = round(float(bleu_score[-1]), 4)
 """))
@@ -1455,7 +1541,7 @@ print("artifact count:", len(artifacts))
 
 # ----------------------------------------------------------------------------
 CELLS.append(code(
-"""# Auto-save checkpoints to your computer — same upload as after each epoch (final retry incl. lineage).
+"""# Auto-save checkpoints to your computer - same upload as after each epoch (final retry incl. lineage).
 if upload_to_hf(tag="final", allow_patterns=["ckpt_latest/**", "lineage.json"]):
     print("download on your computer (IMP-036 import):")
     print(f"  huggingface-cli download {CFG['hf_repo']} --local-dir models/deltavlm-qwen-v2")
@@ -1468,16 +1554,16 @@ else:
 CELLS.append(md(
 """## 8. Next steps
 
-1. **Get the checkpoints onto your computer:** after training, run the "Auto-save via HF Hub" cell —
+1. **Get the checkpoints onto your computer:** after training, run the "Auto-save via HF Hub" cell -
    it pushes the final checkpoint + `lineage.json` to your private HF repo, then pull locally:
 
        huggingface-cli download VMamidala/satquery-model-c-deltavlm-qwen --local-dir models/deltavlm-qwen-v2
 
-   (Kaggle alternative if you don't use HF: commit the notebook — the output dataset keeps the files,
+   (Kaggle alternative if you don't use HF: commit the notebook - the output dataset keeps the files,
    and `kaggle kernels output <owner>/<kernel> -p .` downloads them. The HF route is the automated one.)
 2. **IMP-036:** bump `config/registry.json` entry `change-vqa` (model_key `deltavlm-qwen`) to v2 with the
    lineage pins + checksums; artifacts land under `models/` (gitignored).
-3. **IMP-037 (separate):** dry-run this adapted checkpoint on CDVQA test1 + test2 — measurement only,
+3. **IMP-037 (separate):** dry-run this adapted checkpoint on CDVQA test1 + test2 - measurement only,
    no tuning. Not part of this notebook by design (DEC-021).
 4. **Kaggle T4:** the CONFIG cell auto-applies fp16 / batch 2 / accum 8 / grad-checkpoint when it detects
    a Kaggle runtime; expect ~2-3x longer wall time than an A100.
@@ -1713,7 +1799,10 @@ def main_rank(local_rank):
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
 
-    model = DeltaVLMQwen(CFG).cuda(local_rank)
+    model = DeltaVLMQwen(CFG)
+    if CFG.get("resume_checkpoint_dir") and os.path.exists(CFG["resume_checkpoint_dir"]):
+        model.load_checkpoint(CFG["resume_checkpoint_dir"])
+    model = model.cuda(local_rank)
     model = torch.nn.parallel.DistributedDataParallel(
         model, device_ids=[local_rank], find_unused_parameters=False)
 
@@ -1779,11 +1868,23 @@ def main_rank(local_rank):
             print(f"[rank0] saved {tag} -> {d}", flush=True)
 
     model.train()
-    opt_step, seen, running_loss, t0 = 0, 0, 0.0, time.time()
+    start_step = CFG.get("start_step", 0)
+    for _ in range(start_step):
+        scheduler.step()
+    opt_step = start_step
+    seen = start_step * CFG["accum_steps"]
+    skip_batches = seen
+    running_loss, t0 = 0.0, time.time()
+    if local_rank == 0 and start_step > 0:
+        print(f"[rank0] Resuming directly from step {start_step}/{total_steps} (skipping {skip_batches} batches)", flush=True)
     try:
         for epoch in range(1, CFG["max_epochs"] + 1):
             sampler.set_epoch(epoch)
+            batch_idx = 0
             for batch in loader:
+                batch_idx += 1
+                if batch_idx <= skip_batches:
+                    continue
                 batch = {k: (v.cuda(local_rank) if isinstance(v, torch.Tensor) else v)
                          for k, v in batch.items()}
                 with torch.autocast("cuda", dtype=dt):
@@ -1807,6 +1908,10 @@ def main_rank(local_rank):
                               f"loss {running_loss/10:.3f} lr {scheduler.get_last_lr()[0]:.2e} "
                               f"eta {_eta/3600:.2f}h", flush=True)
                         running_loss = 0.0
+                    # Periodic step checkpointing: overwrite ckpt_latest and push to HF (rank 0 only)
+                    if local_rank == 0 and CFG.get("save_steps") and opt_step % CFG["save_steps"] == 0:
+                        save_checkpoint(model.module, CFG["output_dir"], "ckpt_latest")
+                        upload_to_hf(tag=f"step {opt_step}", allow_patterns=["ckpt_latest/**"])
             # flush leftover accumulated gradients at the end of the epoch
             if seen % CFG["accum_steps"] != 0:
                 scaler.unscale_(optimizer)

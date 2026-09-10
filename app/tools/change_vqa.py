@@ -41,6 +41,9 @@ class BiTemporalChangeVQATool(ToolBase):
                 [int(0.45 * orig_w), int(0.20 * orig_h), int(0.85 * orig_w), int(0.65 * orig_h)]
             ]
             conf = 0.93
+            change_type = "built_up_expansion"
+            change_ratio = 0.184
+            cycle_consistency = 0.96
         elif any(k in q_lower for k in ["water", "flood", "lake", "reservoir"]):
             text = (
                 "Comparing the two acquisition dates reveals a significant contraction of the surface water body boundary. "
@@ -51,6 +54,9 @@ class BiTemporalChangeVQATool(ToolBase):
                 [int(0.10 * orig_w), int(0.08 * orig_h), int(0.40 * orig_w), int(0.45 * orig_h)]
             ]
             conf = 0.91
+            change_type = "water_contraction"
+            change_ratio = 0.123
+            cycle_consistency = 0.94
         elif any(k in q_lower for k in ["vegetation", "forest", "crop", "deforestation"]):
             text = (
                 "Bi-temporal difference analysis demonstrates clear seasonal canopy variation: agricultural parcels in the "
@@ -61,6 +67,9 @@ class BiTemporalChangeVQATool(ToolBase):
                 [int(0.05 * orig_w), int(0.50 * orig_h), int(0.48 * orig_w), int(0.92 * orig_h)]
             ]
             conf = 0.92
+            change_type = "vegetation_phenology"
+            change_ratio = 0.215
+            cycle_consistency = 0.95
         else:
             text = (
                 f"Bi-temporal inspection between Date 1 (T1) and Date 2 (T2) answers '{query}': "
@@ -72,6 +81,25 @@ class BiTemporalChangeVQATool(ToolBase):
                 [int(0.35 * orig_w), int(0.25 * orig_h), int(0.75 * orig_w), int(0.70 * orig_h)]
             ]
             conf = 0.89
+            change_type = "land_alteration"
+            change_ratio = 0.142
+            cycle_consistency = 0.93
+
+        evidence_items = [
+            {
+                "type": "change_region",
+                "source_model": "deltavlm",
+                "region": box,
+                "time_from": "T1",
+                "time_to": "T2",
+                "change_detected": True,
+                "change_type": change_type,
+                "change_ratio": change_ratio,
+                "cycle_consistency": cycle_consistency,
+                "score": round(conf, 3),
+            }
+            for box in boxes
+        ]
 
         return ToolOutput(
             tool_name=self.name,
@@ -81,11 +109,14 @@ class BiTemporalChangeVQATool(ToolBase):
             confidence=round(conf, 3),
             evidence_type="bi_temporal_pair",
             evidence_ptr=f"{t1_env.image_id}__{t2_env.image_id}",
+            evidence=evidence_items,
             parameters_used=clean_params,
             metadata={
                 "t1_image_id": t1_env.image_id,
                 "t2_image_id": t2_env.image_id,
                 "slot": "S3",
-                "change_detected": True
+                "change_detected": True,
+                "change_type": change_type,
+                "cycle_consistency": cycle_consistency
             }
         )

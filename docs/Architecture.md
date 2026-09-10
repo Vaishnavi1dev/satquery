@@ -1,7 +1,7 @@
-# Architecture — SatQuery AI (3-Model Architecture)
+# Architecture - SatQuery AI (3-Model Architecture)
 
 - **System:** SatQuery AI (SIH 2026 PS 26167, ISRO)
-- **Status:** v1.0 — Architecture for EarthDial + DOFA + DeltaVLM stack
+- **Status:** v1.0 - Architecture for EarthDial + DOFA + DeltaVLM stack
 - **Date:** 2026-09-08
 
 ---
@@ -73,7 +73,7 @@
 
 ---
 
-## 2. Data Flow — Query Execution
+## 2. Data Flow - Query Execution
 
 ```
 User Query + Image(s)
@@ -156,21 +156,21 @@ User Query + Image(s)
 
 ## 4. Specialist Tool Adapters (Contract §10–§15)
 
-### 4.1 `rs-vqa` — Single-Image VQA (Model A: EarthDial)
+### 4.1 `rs-vqa` - Single-Image VQA (Model A: EarthDial)
 ```python
 Input:  {image_tensor: [C,H,W], query: str, modality: "optical|multispectral|sar"}
 Params: {max_new_tokens: 256, temperature: 0.0, do_sample: false}
 Output: {text: str, boxes: null, confidence: float, evidence_ptr: "analysed_image"}
 ```
 
-### 4.2 `rs-caption` — Single-Image Captioning (Model A: EarthDial)
+### 4.2 `rs-caption` - Single-Image Captioning (Model A: EarthDial)
 ```python
 Input:  {image_tensor: [C,H,W], modality: "optical|multispectral|sar"}
 Params: {max_new_tokens: 128, temperature: 0.0}
 Output: {text: str, boxes: null, confidence: float, evidence_ptr: "analysed_image"}
 ```
 
-### 4.3 `rs-ground` — Text-Guided Grounding (Model A: EarthDial, optional)
+### 4.3 `rs-ground` - Text-Guided Grounding (Model A: EarthDial, optional)
 ```python
 Input:  {image_tensor: [C,H,W], query: str, modality: "optical|multispectral|sar"}
 Params: {max_new_tokens: 128, temperature: 0.0}
@@ -178,7 +178,7 @@ Output: {text: str, boxes: [[x1,y1,x2,y2], ...], confidence: float, evidence_ptr
 Honesty: If no boxes → {text: "not_located", boxes: [], confidence: 0.0, ...}
 ```
 
-### 4.4 `change-vqa` — Bi-Temporal Change VQA (Model C: DeltaVLM+Qwen)
+### 4.4 `change-vqa` - Bi-Temporal Change VQA (Model C: DeltaVLM+Qwen)
 ```python
 Input:  {image_t1: [C,H,W], image_t2: [C,H,W], query: str}
 Params: {max_new_tokens: 256, temperature: 0.0}
@@ -186,7 +186,7 @@ Output: {text: str, boxes: [[x1,y1,x2,y2], ...]?, confidence: float, evidence_pt
 Joint-use: REQUIRES both images → MDL_JOINT_USE_VIOLATION if only one provided
 ```
 
-### 4.5 `opt-sar-fusion` — Cross-Modal Optical–SAR Joint Analysis (Model B + Model A LLM)
+### 4.5 `opt-sar-fusion` - Cross-Modal Optical–SAR Joint Analysis (Model B + Model A LLM)
 ```python
 Input:  {optical_tensor: [C1,H,W], sar_tensor: [C2,H,W], query: str,
          optical_wavelengths: [µm], sar_wavelengths: [µm]}
@@ -336,7 +336,7 @@ sessions/
 | **Determinism** | Greedy decoding (temp=0), fixed seeds, logged in trace |
 | **Leakage Firewall** | Train/test split enforcement in data loaders; evaluation harness uses separate code paths |
 | **Observability** | Structured JSONL event stream (correlation_id = trace_id); TraceView projection |
-| **Error Taxonomy** | `VAL_*` (input), `MDL_*` (model), `SYS_*` (system) — mapped to HTTP codes |
+| **Error Taxonomy** | `VAL_*` (input), `MDL_*` (model), `SYS_*` (system) - mapped to HTTP codes |
 | **License Compliance** | License manifest in `models/LICENSES.json`; verified at checkpoint import |
 | **Reproducibility** | Checksums for all weights, datasets, code commits; recorded in trace |
 
@@ -345,7 +345,7 @@ sessions/
 ## 11. Deployment Topology
 
 ### 11.1 Development (Windows 11)
-- `.venv/Scripts/python.exe` — no Docker
+- `.venv/Scripts/python.exe` - no Docker
 - CPU or optional local GPU
 - `data/`, `models/`, `sessions/` local (gitignored)
 
@@ -370,7 +370,7 @@ sessions/
 | `app/agent` → `app/tools` | Only via Registry handles (no direct imports) |
 | `app/tools` → `app/runtime` | Only via `runtime.load(model_key)` + `model.forward()` |
 | `app/runtime` → `models/` | Only via Model Store (versioned, checksummed) |
-| `training/` → `app/` | **Never** — training is external; checkpoints imported via Model Store |
+| `training/` → `app/` | **Never** - training is external; checkpoints imported via Model Store |
 
 ---
 

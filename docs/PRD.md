@@ -1,7 +1,7 @@
-# Product Requirements Document — SatQuery AI
+# Product Requirements Document - SatQuery AI
 
 - **System:** SatQuery AI (SIH 2026 PS 26167, ISRO)
-- **Status:** v1.0 — Initial PRD for 3-model architecture
+- **Status:** v1.0 - Initial PRD for 3-model architecture
 - **Date:** 2026-09-08
 
 ---
@@ -24,7 +24,7 @@ Develop an **interactive, agentic vision-language assistant** for analyzing sing
 | Single image | Optical / Multispectral / SAR | Captioning, VQA, Text-guided grounding |
 | Cross-modal pair | Co-registered Optical/MS + SAR | Joint extraction, cross-modal analysis |
 | Bi-temporal pair | Two spatially aligned images (diff. times) | Change detection, description, change-VQA |
-| Formats | GeoTIFF/TIFF (primary); PNG/JPEG (benchmark-only) | — |
+| Formats | GeoTIFF/TIFF (primary); PNG/JPEG (benchmark-only) | - |
 
 ---
 
@@ -50,7 +50,7 @@ Develop an **interactive, agentic vision-language assistant** for analyzing sing
 
 > **Note on DOFA:** DOFA is a wavelength-conditioned ViT encoder (no LLM). It serves as the **feature extractor/fusion backbone** for S4. A lightweight projection + LLM head (or the EarthDial LLM) generates the final textual response for optical–SAR queries.
 
-> **Note on DeltaVLM:** Uses Vicuna-7B (LLaMA-2 lineage) as frozen LLM decoder. Licensing is research-only. For competition deliverable, we either (a) accept the risk and document it, or (b) swap the LLM to Qwen3.5-2B (Apache-2.0) while keeping DeltaVLM's Bi-VE + IDPM + Q-former architecture, retrained on ChangeChat-105k. Decision: **Option (b) — LLM swap to Qwen3.5-2B** for license compliance.
+> **Note on DeltaVLM:** Uses Vicuna-7B (LLaMA-2 lineage) as frozen LLM decoder. Licensing is research-only. For competition deliverable, we either (a) accept the risk and document it, or (b) swap the LLM to Qwen3.5-2B (Apache-2.0) while keeping DeltaVLM's Bi-VE + IDPM + Q-former architecture, retrained on ChangeChat-105k. Decision: **Option (b) - LLM swap to Qwen3.5-2B** for license compliance.
 
 ---
 

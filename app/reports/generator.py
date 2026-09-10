@@ -12,7 +12,7 @@ REPORT_TEMPLATE = """
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>SatQuery AI — Execution Audit Report</title>
+    <title>SatQuery AI - Execution Audit Report</title>
     <style>
         :root {
             --bg-color: #0d1117;
@@ -172,7 +172,7 @@ REPORT_TEMPLATE = """
     <div class="container">
         <div class="header">
             <div>
-                <h1 class="title">SatQuery AI — Analysis Report</h1>
+                <h1 class="title">SatQuery AI - Analysis Report</h1>
                 <div class="subtitle">SIH 2026 Problem Statement 26167 | ISRO / Department of Space</div>
             </div>
             <div class="badge">{{ trace_view.status }}</div>
@@ -237,6 +237,57 @@ REPORT_TEMPLATE = """
             {% endif %}
         </div>
 
+        {% if evidence_items %}
+        <div class="card">
+            <h2>Evidence Provenance & Verification Details</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Item #</th>
+                        <th>Type</th>
+                        <th>Source Model</th>
+                        <th>Evidence / Findings</th>
+                        <th>Localization / Region</th>
+                        <th>Confidence / Score</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for ev in evidence_items %}
+                    <tr>
+                        <td style="color: #8b949e;">#{{ loop.index }}</td>
+                        <td><span class="badge">{{ ev.get('type') }}</span></td>
+                        <td><strong style="color: var(--cyan);">{{ (ev.get('source_model') or 'Specialist') | upper }}</strong></td>
+                        <td>{{ ev.get('description') or ev.get('label') or 'Observable model extraction' }}</td>
+                        <td>
+                            {% if ev.get('region') %}
+                                <code>{{ ev.get('region') }}</code>
+                            {% elif ev.get('time_from') and ev.get('time_to') %}
+                                <span class="badge" style="background:#1f2937;">{{ ev.get('time_from') }} &rarr; {{ ev.get('time_to') }}</span>
+                            {% else %}
+                                <span style="color: #8b949e;">Scene-level</span>
+                            {% endif %}
+                        </td>
+                        <td style="color: var(--cyan); font-weight: 600;">
+                            {% if ev.get('score') is not none %}{{ (ev.get('score') * 100) | round(1) }}%{% else %}N/A{% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+        {% if trace_view.execution_trace %}
+        <div class="card">
+            <h2>Agent Execution Sequence</h2>
+            <ol style="margin: 0; padding-left: 20px; font-size: 14px; color: #f0f6fc; line-height: 1.8;">
+                {% for item in trace_view.execution_trace %}
+                <li>{{ item }}</li>
+                {% endfor %}
+            </ol>
+        </div>
+        {% endif %}
+
         <div class="card">
             <h2>Auditable Agentic Execution Trace</h2>
             <table>
@@ -255,7 +306,7 @@ REPORT_TEMPLATE = """
                         <td style="font-weight: 500; color: #f0f6fc;">{{ step.step_name }}</td>
                         <td><span class="status-pill status-{{ step.status }}">{{ step.status }}</span></td>
                         <td>{{ step.tool_name or step.model_name or 'Controller' }}</td>
-                        <td>{% if step.duration_ms %}{{ step.duration_ms }} ms{% else %}—{% endif %}</td>
+                        <td>{% if step.duration_ms %}{{ step.duration_ms }} ms{% else %}-{% endif %}</td>
                         <td style="color: #8b949e;">{{ step.timestamp[11:19] }} UTC</td>
                     </tr>
                     {% endfor %}
@@ -288,7 +339,8 @@ class ReportGenerator:
         images: List[ImageMetadataEnvelope],
         trace_view: TraceView,
         evidence_path: Optional[Path] = None,
-        report_id: Optional[str] = None
+        report_id: Optional[str] = None,
+        evidence_items: Optional[List[Dict[str, Any]]] = None
     ) -> Path:
         rid = report_id or f"rep_{uuid.uuid4().hex[:12]}"
         dest_path = self.sandbox.get_report_path(session_id, f"{rid}.html")
@@ -306,6 +358,7 @@ class ReportGenerator:
             images=images,
             trace_view=trace_view,
             evidence_url=evidence_url,
+            evidence_items=evidence_items or [],
             generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
         )
 

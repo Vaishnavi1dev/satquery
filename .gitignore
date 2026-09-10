@@ -14,10 +14,10 @@ env/
 Thumbs.db
 
 # Heavy Artifacts & Data (per Architecture & Implementation Plan)
-data/
-models/
-sessions/
-output/
+/data/
+/models/
+/sessions/
+/output/
 *.pt
 *.pth
 *.bin
@@ -32,3 +32,17 @@ third_party/
 *.log
 scratch/
 nohup.out
+
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+
+# Frontend & Node
+node_modules/
+dist/
+dist-ssr/
+

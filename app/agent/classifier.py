@@ -8,14 +8,25 @@ class TaskClassifier:
     Maps (query, images) -> TaskLabel in {vqa, caption, grounding, change_vqa, opt_sar_fusion}.
     """
 
-    TASKS = ["vqa", "caption", "grounding", "change_vqa", "opt_sar_fusion"]
+    TASKS = ["vqa", "caption", "grounding", "change_vqa", "opt_sar_fusion", "temporal_sequence"]
 
     @classmethod
     def classify(cls, query: str, images: List[ImageMetadataEnvelope]) -> Tuple[str, float]:
         q_lower = query.lower().strip()
         num_images = len(images)
 
-        # 1. Multi-image routing
+        # 0. Multi-temporal sequence routing (N >= 3 images)
+        if num_images >= 3:
+            return "temporal_sequence", 0.98
+
+        is_seq_query = any(k in q_lower for k in [
+            "timeline", "sequence", "progression", "trend over time", "evolution across",
+            "t1 to t", "epochs", "consecutive", "time series"
+        ])
+        if is_seq_query and num_images >= 3:
+            return "temporal_sequence", 0.99
+
+        # 1. Multi-image routing (2 images)
         if num_images == 2:
             m1 = images[0].modality
             m2 = images[1].modality
@@ -24,6 +35,14 @@ class TaskClassifier:
             is_sar1 = m1 == "sar"
             is_opt2 = m2 in ("optical", "multispectral")
             is_sar2 = m2 == "sar"
+
+            is_change_query = any(k in q_lower for k in [
+                "between these two", "what changed", "change between", "has construction increased",
+                "has the built-up area increased", "increased, decreased, or remained", "increased between",
+                "dates", "t1", "t2", "over time", "temporal"
+            ])
+            if is_change_query:
+                return "change_vqa", 0.96
 
             # Check for cross-modal optical-SAR pair
             if (is_opt1 and is_sar2) or (is_sar1 and is_opt2):

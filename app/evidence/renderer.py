@@ -101,8 +101,8 @@ class EvidenceRenderer:
         canvas.paste(r2, (w1 + 16, 40))
 
         draw = ImageDraw.Draw(canvas)
-        draw.text((16, 12), f"Observation T1 (Baseline) — {env_t1.filename}", fill=(200, 220, 255))
-        draw.text((w1 + 32, 12), f"Observation T2 (Follow-up) — {env_t2.filename}", fill=(255, 180, 50))
+        draw.text((16, 12), f"Observation T1 (Baseline) - {env_t1.filename}", fill=(200, 220, 255))
+        draw.text((w1 + 32, 12), f"Observation T2 (Follow-up) - {env_t2.filename}", fill=(255, 180, 50))
 
         # Highlight change boxes on T2
         if change_boxes:
@@ -119,6 +119,7 @@ class EvidenceRenderer:
                     draw.text((x1 + 6, y1 + 6), "Detected Change Zone", fill=(255, 80, 80))
 
         dest_path = self.sandbox.get_evidence_path(session_id, f"evidence_change_{env_t1.image_id}__{env_t2.image_id}.png")
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
         canvas.save(dest_path, format="PNG")
         return dest_path
 
@@ -149,5 +150,53 @@ class EvidenceRenderer:
         draw.text((w_opt + 32, 12), f"Synthetic Aperture Radar Backscatter (SAR)", fill=(180, 130, 255))
 
         dest_path = self.sandbox.get_evidence_path(session_id, f"evidence_fusion_{opt_env.image_id}__{sar_env.image_id}.png")
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        canvas.save(dest_path, format="PNG")
+        return dest_path
+
+    def render_temporal_sequence_filmstrip(
+        self,
+        session_id: str,
+        envelopes: List[ImageMetadataEnvelope],
+        boxes: Optional[List[List[int]]] = None
+    ) -> Path:
+        """Renders an aligned chronological timeline filmstrip across N >= 3 satellite epochs."""
+        images = [self._load_pil_image(env) for env in envelopes]
+        target_h = 360
+        resized = []
+        for img in images:
+            w = int(img.width * (target_h / img.height))
+            resized.append(img.resize((w, target_h), Image.Resampling.BILINEAR))
+
+        total_w = sum(img.width for img in resized) + (len(resized) - 1) * 16 + 24
+        canvas = Image.new("RGB", (total_w, target_h + 60), color=(10, 14, 22))
+        draw = ImageDraw.Draw(canvas)
+
+        curr_x = 12
+        for idx, (img, env) in enumerate(zip(resized, envelopes)):
+            canvas.paste(img, (curr_x, 50))
+            epoch_label = f"Epoch T{idx + 1} - {env.filename[:20]}"
+            color = (0, 240, 255) if idx == 0 else ((255, 200, 80) if idx == len(envelopes) - 1 else (200, 220, 255))
+            draw.text((curr_x + 4, 18), epoch_label, fill=color)
+
+            if idx > 0:
+                draw.text((curr_x - 12, 50 + target_h // 2 - 10), "→", fill=(255, 255, 255))
+
+            if boxes and (idx - 1) < len(boxes) and idx > 0:
+                box = boxes[idx - 1]
+                scale_x = img.width / float(env.width)
+                scale_y = target_h / float(env.height)
+                bx1 = int(box[0] * scale_x) + curr_x
+                by1 = int(box[1] * scale_y) + 50
+                bx2 = int(box[2] * scale_x) + curr_x
+                by2 = int(box[3] * scale_y) + 50
+                draw.rectangle([bx1, by1, bx2, by2], outline=(255, 80, 80), width=3)
+                draw.text((bx1 + 4, by1 + 4), f"Δ Event T{idx}→T{idx+1}", fill=(255, 100, 100))
+
+            curr_x += img.width + 16
+
+        seq_id = f"{envelopes[0].image_id}__to__{envelopes[-1].image_id}"
+        dest_path = self.sandbox.get_evidence_path(session_id, f"evidence_sequence_{seq_id}.png")
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
         canvas.save(dest_path, format="PNG")
         return dest_path

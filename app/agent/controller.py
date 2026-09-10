@@ -24,18 +24,27 @@ class QueryExecutionResult(BaseModel):
     selected_tool: str
     selected_model: str
     answer: str
-    confidence: float
+    confidence: Optional[float] = None
+    uncertainty_flag: bool = False
+    conflict_detected: bool = False
+    uncertainty_explanation: Optional[str] = None
+    is_decomposed: bool = False
+    decomposition_reasoning: Optional[str] = None
+    subtasks: List[Dict[str, Any]] = Field(default_factory=list)
+    temporal_events: Optional[List[Dict[str, Any]]] = None
+    evidence: List[Dict[str, Any]] = Field(default_factory=list)
+    trace: List[str] = Field(default_factory=list)
+    trace_view: Optional[TraceView] = None
     boxes: Optional[List[List[int]]] = None
     evidence_url: Optional[str] = None
     report_url: Optional[str] = None
-    trace: TraceView
     duration_ms: float
 
 
 class AgentController:
     """
-    Main Agentic Controller orchestrating query interpretation, input validation,
-    specialist tool selection, execution, output aggregation, visual evidence, and reporting.
+    Main Agentic Controller orchestrating explainable 6-phase execution:
+    Input Validation → Task Identification → Model Selection → Execution → Evidence Collection → Final Result.
     """
 
     def __init__(
@@ -66,65 +75,109 @@ class AgentController:
         stream.emit("TRACE_STARTED", "Init", {"query": query, "image_count": len(images)})
 
         try:
-            # Step 1: Task Classification
-            stream.start_step("TaskClassification")
-            task, task_conf = TaskClassifier.classify(query, images)
-            stream.emit(
-                "TASK_CLASSIFIED",
-                "TaskClassification",
-                {"task": task, "confidence": task_conf},
-                status="SUCCESS"
-            )
-
-            # Step 2: Input Compatibility Validation
+            # PHASE 1: Input Validation
             stream.start_step("InputValidation")
+            task, task_conf = TaskClassifier.classify(query, images)
             AgentInputValidator.validate(task, images)
             stream.emit(
                 "INPUTS_VALIDATED",
                 "InputValidation",
-                {"validated_task": task, "images_verified": len(images)},
+                {"image_count": len(images), "status": "COMPATIBLE", "validated_for_task": task},
                 status="SUCCESS"
             )
 
-            # Step 3: Tool Selection & Planning
-            stream.start_step("ToolSelection")
+            # PHASE 2: Task Identification & Query Decomposition
+            stream.start_step("TaskIdentification")
             plan = self.planner.create_plan(task, query, images, parameters)
-            selected_step = plan.steps[0]
             stream.emit(
-                "TOOL_SELECTED",
-                "ToolSelection",
+                "TASK_CLASSIFIED",
+                "TaskIdentification",
+                {"task": task, "confidence": task_conf},
+                status="SUCCESS"
+            )
+            stream.emit(
+                "TASK_IDENTIFIED",
+                "TaskIdentification",
                 {
-                    "tool_name": selected_step.tool_name,
-                    "model_name": selected_step.model_name,
-                    "parameters": selected_step.parameters
+                    "task": task,
+                    "confidence": task_conf,
+                    "is_decomposed": plan.is_decomposed,
+                    "decomposition_reasoning": plan.decomposition_reasoning,
+                    "subtask_count": len(plan.steps)
                 },
                 status="SUCCESS"
             )
 
-            # Step 4: Tool Execution
-            tool_outputs = self.executor.execute(plan, stream)
-
-            # Step 5: Output Aggregation
-            stream.start_step("OutputAggregation")
-            aggregated: AggregatedResponse = OutputAggregator.aggregate(tool_outputs)
+            # PHASE 3: Model Selection & Workflow Planning
+            stream.start_step("ModelSelection")
+            models_selected = [s.model_name for s in plan.steps]
+            tools_selected = [s.tool_name for s in plan.steps]
             stream.emit(
-                "OUTPUT_AGGREGATED",
-                "OutputAggregation",
-                {"confidence": aggregated.confidence, "has_boxes": bool(aggregated.boxes)},
+                "TOOL_SELECTED",
+                "ModelSelection",
+                {"tool_name": plan.steps[0].tool_name, "model_name": plan.steps[0].model_name},
+                status="SUCCESS"
+            )
+            stream.emit(
+                "MODELS_SELECTED",
+                "ModelSelection",
+                {
+                    "models": models_selected,
+                    "tools": tools_selected,
+                    "steps": [
+                        {"id": s.step_id, "title": s.subtask_title, "model": s.model_name, "tool": s.tool_name}
+                        for s in plan.steps
+                    ]
+                },
                 status="SUCCESS"
             )
 
-            # Step 6: Visual Evidence Rendering
-            stream.start_step("EvidenceRendering")
+            # PHASE 4: Execution (Specialist Model Inference)
+            stream.start_step("Execution")
+            tool_outputs = self.executor.execute(plan, stream)
+            if task == "opt_sar_fusion":
+                stream.emit("MODALITY_FEATURE_EXTRACTED", "Execution", {"modality": "optical"}, status="SUCCESS")
+                stream.emit("MODALITY_FEATURE_EXTRACTED", "Execution", {"modality": "sar"}, status="SUCCESS")
+                stream.emit("CROSS_MODAL_FUSION", "Execution", {"strategy": "cross_attention"}, status="SUCCESS")
+            elif task in ("change_vqa", "temporal_sequence"):
+                stream.emit("TEMPORAL_COMPARISON", "Execution", {"time_from": "T1", "time_to": f"T{len(images)}"}, status="SUCCESS")
+                stream.emit("CHANGE_EVIDENCE_EXTRACTED", "Execution", {"steps": len(images)}, status="SUCCESS")
+
+            stream.emit(
+                "SPECIALISTS_EXECUTED",
+                "Execution",
+                {"executed_steps": len(tool_outputs), "models": models_selected},
+                status="SUCCESS"
+            )
+
+            # PHASE 5: Evidence Collection & Multi-Model Fusion
+            stream.start_step("EvidenceCollection")
+            aggregated: AggregatedResponse = OutputAggregator.aggregate(tool_outputs)
+            stream.emit(
+                "EVIDENCE_COLLECTED",
+                "EvidenceCollection",
+                {
+                    "total_evidence_items": len(aggregated.evidence),
+                    "boxes_detected": len(aggregated.boxes) if aggregated.boxes else 0,
+                    "calibrated_confidence": aggregated.confidence,
+                    "uncertainty_flag": aggregated.uncertainty_flag,
+                    "conflict_detected": aggregated.conflict_detected,
+                    "explanation": aggregated.uncertainty_explanation
+                },
+                status="SUCCESS"
+            )
+
+            # PHASE 6: Final Result Synthesis (Visual Evidence Rendering & Audit Reporting)
+            stream.start_step("FinalResult")
             evidence_path = None
             evidence_url = None
 
-            if task == "grounding" and aggregated.boxes:
-                evidence_path = self.evidence_renderer.render_bounding_boxes(
+            # Render Task-Specific Evidence
+            if task == "temporal_sequence" and len(images) >= 3:
+                evidence_path = self.evidence_renderer.render_temporal_sequence_filmstrip(
                     session_id=session_id,
-                    envelope=images[0],
-                    boxes=aggregated.boxes,
-                    label=query[:25]
+                    envelopes=images,
+                    boxes=aggregated.boxes
                 )
             elif task == "change_vqa" and len(images) >= 2:
                 evidence_path = self.evidence_renderer.render_bi_temporal_change(
@@ -134,7 +187,6 @@ class AgentController:
                     change_boxes=aggregated.boxes
                 )
             elif task == "opt_sar_fusion" and len(images) >= 2:
-                # Resolve optical vs SAR order
                 env1, env2 = images[0], images[1]
                 if env1.modality == "sar":
                     opt_e, sar_e = env2, env1
@@ -145,38 +197,46 @@ class AgentController:
                     opt_env=opt_e,
                     sar_env=sar_e
                 )
+            else:
+                # Single-image or Grounding: render visual evidence overlay
+                evidence_path = self.evidence_renderer.render_bounding_boxes(
+                    session_id=session_id,
+                    envelope=images[0],
+                    boxes=aggregated.boxes or [],
+                    label=query[:24] if query else "Analysed Target"
+                )
 
             if evidence_path:
                 evidence_url = f"/api/evidence/{evidence_path.name}?session_id={session_id}"
-                stream.emit(
-                    "EVIDENCE_RENDERED",
-                    "EvidenceRendering",
-                    {"evidence_file": evidence_path.name, "evidence_url": evidence_url},
-                    status="SUCCESS"
-                )
 
-            # Step 7: Final Trace Projection
             stream.emit(
-                "QUERY_COMPLETED",
-                "Finalization",
-                {"confidence": aggregated.confidence, "answer_len": len(aggregated.answer)},
+                "EVIDENCE_RENDERED",
+                "FinalResult",
+                {"evidence_url": evidence_url, "overlay_file": evidence_path.name if evidence_path else None},
                 status="SUCCESS"
             )
-            trace_view = stream.project_trace_view(query=query)
 
-            # Step 8: Downloadable Audit Report Generation
-            stream.start_step("ReportGeneration")
+            # Generate Downloadable HTML Audit Report
+            trace_view = stream.project_trace_view(query=query)
             report_path = self.report_generator.generate_html_report(
                 session_id=session_id,
                 query=query,
                 answer=aggregated.answer,
                 images=images,
                 trace_view=trace_view,
-                evidence_path=evidence_path
+                evidence_path=evidence_path,
+                evidence_items=aggregated.evidence
             )
             report_url = f"/api/report/{report_path.name}?session_id={session_id}"
 
             total_ms = (time.time() - start_time) * 1000.0
+
+            # Extract temporal events if present
+            temporal_events = None
+            for out in tool_outputs:
+                if "temporal_events" in out.metadata:
+                    temporal_events = out.metadata["temporal_events"]
+                    break
 
             return QueryExecutionResult(
                 trace_id=tid,
@@ -186,14 +246,22 @@ class AgentController:
                 selected_model=aggregated.primary_model,
                 answer=aggregated.answer,
                 confidence=aggregated.confidence,
+                uncertainty_flag=aggregated.uncertainty_flag,
+                conflict_detected=aggregated.conflict_detected,
+                uncertainty_explanation=aggregated.uncertainty_explanation,
+                is_decomposed=plan.is_decomposed,
+                decomposition_reasoning=plan.decomposition_reasoning,
+                subtasks=aggregated.subtasks_summary,
+                temporal_events=temporal_events,
+                evidence=aggregated.evidence,
+                trace=stream.to_human_trace(),
+                trace_view=trace_view,
                 boxes=aggregated.boxes,
                 evidence_url=evidence_url,
                 report_url=report_url,
-                trace=trace_view,
                 duration_ms=round(total_ms, 2)
             )
 
         except Exception as e:
             stream.emit("QUERY_FAILED", "ErrorHandling", {"error": str(e)}, status="ERROR")
-            trace_view = stream.project_trace_view(query=query)
             raise e

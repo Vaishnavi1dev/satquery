@@ -92,6 +92,17 @@ class TextGuidedGroundingTool(ToolBase):
             f"Spatial bounding coordinates identified with high localization confidence."
         )
 
+        evidence_items = [
+            {
+                "type": "bounding_box",
+                "source_model": "earthdial",
+                "label": label,
+                "region": box,
+                "score": round(conf, 3)
+            }
+            for box in projected_boxes
+        ]
+
         return ToolOutput(
             tool_name=self.name,
             model_name=self.model_name,
@@ -100,6 +111,7 @@ class TextGuidedGroundingTool(ToolBase):
             confidence=round(conf, 3),
             evidence_type="analysed_image",
             evidence_ptr=envelope.image_id if envelope else None,
+            evidence=evidence_items,
             parameters_used=clean_params,
             metadata={"target_query": query, "label": label, "box_count": len(projected_boxes)}
         )

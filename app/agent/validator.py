@@ -26,6 +26,15 @@ class AgentInputValidator:
                 )
             PairValidator.validate_bi_temporal_pair(images[0], images[1])
 
+        elif task == "temporal_sequence":
+            if len(images) < 3:
+                raise ValidationError(
+                    "VAL_INVALID_INPUT_COUNT",
+                    f"Task '{task}' (multi-temporal sequence analysis) requires at least 3 sequential epochs (T1...TN). "
+                    f"Provided: {len(images)} images."
+                )
+            PairValidator.validate_temporal_sequence(images)
+
         elif task == "opt_sar_fusion":
             if len(images) < 2:
                 raise ValidationError(

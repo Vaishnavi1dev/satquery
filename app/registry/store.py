@@ -9,6 +9,7 @@ from app.tools.rs_caption import SingleImageCaptionTool
 from app.tools.rs_ground import TextGuidedGroundingTool
 from app.tools.change_vqa import BiTemporalChangeVQATool
 from app.tools.opt_sar_fusion import OpticalSARFusionTool
+from app.tools.sequence_analyzer import MultiTemporalSequenceTool
 
 
 class ToolRegistryStore:
@@ -23,6 +24,7 @@ class ToolRegistryStore:
         "rs-ground": TextGuidedGroundingTool,
         "change-vqa": BiTemporalChangeVQATool,
         "opt-sar-fusion": OpticalSARFusionTool,
+        "temporal-sequence": MultiTemporalSequenceTool,
     }
 
     def __init__(self, registry_path: Optional[Path] = None, runtime_mgr: Optional[ModelRuntimeManager] = None):

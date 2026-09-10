@@ -47,6 +47,7 @@ class SingleImageCaptionTool(ToolBase):
             confidence=round(conf, 3),
             evidence_type="analysed_image",
             evidence_ptr=envelope.image_id if envelope else None,
+            evidence=[],  # Requirement 2: Captioning produces no explicit localization; mark unavailable instead of fabricating
             parameters_used=clean_params,
-            metadata={"modality": modality, "slot": "S2"}
+            metadata={"modality": modality, "slot": "S2", "evidence_status": "unavailable"}
         )

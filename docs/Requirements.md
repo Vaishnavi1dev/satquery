@@ -1,4 +1,4 @@
-# Requirements — SatQuery AI
+# Requirements - SatQuery AI
 
 - **System:** SatQuery AI (SIH 2026 PS 26167)
 - **Status:** v1.0

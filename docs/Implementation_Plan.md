@@ -1,7 +1,7 @@
-# Implementation Plan — SatQuery AI (3-Model Architecture)
+# Implementation Plan - SatQuery AI (3-Model Architecture)
 
 - **System:** SatQuery AI (SIH 2026 PS 26167, ISRO)
-- **Status:** v1.0 — Implementation roadmap for EarthDial + DOFA + DeltaVLM stack
+- **Status:** v1.0 - Implementation roadmap for EarthDial + DOFA + DeltaVLM stack
 - **Inputs:** PRD.md, Model_Selection.md, PS 26167
 - **Date:** 2026-09-08
 
@@ -26,7 +26,7 @@
 2. **Phase 1–2 (M2):** Input infrastructure + all 5 specialist tools on base weights.
 3. **Phase 3 (parallel from Week 1):** Data acquisition + fine-tuning (EarthDial on BEN.txt+VRSBench; DOFA head on BEN.txt pairs; DeltaVLM+Qwen on ChangeChat-105k).
 4. **Phase 4–5 (M3):** Registry formalization + full agent (all 5 tasks, planner, aggregation, joint-use checks).
-5. **Phase 6–8 (M4):** Full API, GUI, evidence/report engines — contract-complete.
+5. **Phase 6–8 (M4):** Full API, GUI, evidence/report engines - contract-complete.
 6. **Phase 9–10 (M5):** Integration hardening + evaluation harness with dry-run measurement.
 7. **Phase 11 (M6/M7):** Demo set, packaging, compliance bundle, readiness gates.
 
@@ -65,7 +65,7 @@ satquery/
 
 ---
 
-## 4. Phase 0 — Project Foundation (IMP-001..IMP-010)
+## 4. Phase 0 - Project Foundation (IMP-001..IMP-010)
 
 **Objective:** Running skeleton with config, logging/event-stream, storage sandbox, test infra.
 
@@ -87,7 +87,7 @@ satquery/
 
 ---
 
-## 5. Phase 1 — Data & Input Infrastructure (IMP-011..IMP-018)
+## 5. Phase 1 - Data & Input Infrastructure (IMP-011..IMP-018)
 
 **Objective:** Upload-time ingestion + plan-time preprocessing for all supported input configs.
 
@@ -107,7 +107,7 @@ satquery/
 
 ---
 
-## 6. Phase 2 — Specialist Tools on Base Weights (IMP-019..IMP-030)
+## 6. Phase 2 - Specialist Tools on Base Weights (IMP-019..IMP-030)
 
 **Objective:** All 5 specialist tools independently callable via Contract §10–§15 on base weights.
 
@@ -115,18 +115,18 @@ satquery/
 - **IMP-019:** Runtime core: device manager (CUDA/MPS/CPU), quantization (BNB int8/int4, GGUF), memory budget tracker.
 - **IMP-020:** Model store: versioned checkpoints, lineage metadata (base, adapter, dataset, gate scores), checksum verification.
 
-### 6.2 Model A — EarthDial-4B Adapters (IMP-021..IMP-024)
+### 6.2 Model A - EarthDial-4B Adapters (IMP-021..IMP-024)
 - **IMP-021:** Acquire EarthDial-4B weights (RGB/MS variants); verify license; place in `models/earthdial/`.
 - **IMP-022:** EarthDial adapter: chat template, multi-image input (band-fusion), generate + grounding parse.
-- **IMP-023:** `rs-vqa` tool: single-image VQA (optical/MS/SAR) — instruction format per EarthDial.
+- **IMP-023:** `rs-vqa` tool: single-image VQA (optical/MS/SAR) - instruction format per EarthDial.
 - **IMP-024:** `rs-caption` tool: single-image captioning (same backbone, caption prompt).
 
-### 6.3 Model B — DOFA Encoder + Fusion Head (IMP-025..IMP-027)
+### 6.3 Model B - DOFA Encoder + Fusion Head (IMP-025..IMP-027)
 - **IMP-025:** Acquire DOFA ViT-B weights (HF earthflow/DOFA or TorchGeo); verify CC-BY-4.0.
 - **IMP-026:** DOFA encoder wrapper: wavelength input → patch embed → frozen ViT forward → multi-modal embeddings.
 - **IMP-027:** `opt-sar-fusion` tool: co-registered pair → DOFA embeddings (optical wavelengths + SAR wavelengths) → cross-attention fusion head → EarthDial LLM decode (shared Phi-3-mini via EarthDial adapter).
 
-### 6.4 Model C — DeltaVLM + Qwen3.5-2B (IMP-028..IMP-029)
+### 6.4 Model C - DeltaVLM + Qwen3.5-2B (IMP-028..IMP-029)
 - **IMP-028:** Acquire Qwen3.5-2B (Apache-2.0); implement DeltaVLM Bi-VE (EVA-ViT-g/14) + IDPM (CSRM + Q-former) architecture; load Qwen3.5-2B as frozen decoder.
 - **IMP-029:** `change-vqa` tool: bi-temporal pair → Bi-VE → IDPM → Qwen3.5-2B generate.
 
@@ -146,27 +146,27 @@ satquery/
 
 ---
 
-## 7. Phase 3 — Model Adaptation / Fine-Tuning (IMP-031..IMP-038)
+## 7. Phase 3 - Model Adaptation / Fine-Tuning (IMP-031..IMP-038)
 
 **Objective:** Produce 3 adapted checkpoints with full lineage + gate evidence (E-6 discipline).
 
 | Task | Description | Data | Gate |
 |------|-------------|------|------|
-| IMP-031 | Dataset acquisition: BigEarthNet.txt (S1+S2 pairs), VRSBench train, ChangeChat-105k train, CDVQA train | — | Checksums verified; manifests/acquisitions.json |
+| IMP-031 | Dataset acquisition: BigEarthNet.txt (S1+S2 pairs), VRSBench train, ChangeChat-105k train, CDVQA train | - | Checksums verified; manifests/acquisitions.json |
 | IMP-032 | Derived datasets: EarthDial instruction mix (BEN.txt captions/VQA/RED + VRSBench train), DOFA head pairs (BEN.txt S1+S2 captions/VQA), DeltaVLM+Qwen (ChangeChat-105k train) | PRD §9, Model_Selection §3 | Split hygiene: zero overlap with prescribed test splits (audit) |
 | IMP-033 | FT-A: EarthDial LoRA (r=16–32) on LLM + projector; freeze ViT; multi-sensor band-fusion | BEN.txt + VRSBench train | BEN.txt bench split: binary VQA ≥70%, caption BLEU-4 ≥30; VRSBench holdout BLEU-1 ≥45 |
 | IMP-034 | FT-B: DOFA fusion head (MLP + cross-attn) on BEN.txt co-registered pairs | BEN.txt paired annotations | S4 joint caption/VQA quality vs Model A solo (ablation) |
 | IMP-035 | FT-C: DeltaVLM+Qwen LoRA on Qwen3.5-2B (r=16–32); selective FT Bi-VE last 2 blocks; FT Q-former | ChangeChat-105k train (87,935) | ChangeChat val: caption CIDEr ≥ baseline; binary Acc ≥90%; open QA review |
-| IMP-036 | Checkpoint import: version bump in registry, lineage pins, checksums in `models/` | — | Registry shows v2 for each adapted model |
+| IMP-036 | Checkpoint import: version bump in registry, lineage pins, checksums in `models/` | - | Registry shows v2 for each adapted model |
 | IMP-037 | Dry-run measurement: adapted Model A on VRSBench test + RSVQA test; Model C on CDVQA test1 + test2 | Prescribed test splits | Logs saved; **no tuning** (DEC-021) |
-| IMP-038 | Re-run Phase 2 tool tests on adapted weights → all green | — | No regressions |
+| IMP-038 | Re-run Phase 2 tool tests on adapted weights → all green | - | No regressions |
 
 **Training Environment:** Colab A100 40 GB (recommended); T4 16 GB fallback (bf16 LoRA, batch 1–2, grad checkpoint).
 **Scripts:** `training/model_a/`, `training/model_b/`, `training/model_c/` with per-run READMEs.
 
 ---
 
-## 8. Phase 4 — Tool Abstraction Layer / Registry (IMP-039..IMP-043)
+## 8. Phase 4 - Tool Abstraction Layer / Registry (IMP-039..IMP-043)
 
 **Objective:** Formalize registry as sole invocation route with declarative, versioned descriptors.
 
@@ -176,13 +176,13 @@ satquery/
 | IMP-040 | `config/registry.json` v1: all 5 entries + resource classes (earthdial, dofa, deltavlm) + load groups | NFR-104/105, PRD-CON-007 |
 | IMP-041 | Registry lookup: controller → registry → runtime → tool adapter (no direct imports) | Contract §9, R-7 |
 | IMP-042 | Stub-specialist extensibility proof: add dummy tool with zero controller changes | NFR-105 |
-| IMP-043 | Registry↔model-store startup consistency check | — |
+| IMP-043 | Registry↔model-store startup consistency check | - |
 
 **Tests:** R-7 (registry closure), AC-AGT-003 structural inspection, stub-specialist green, `enabled: false` unselectable, version in trace.
 
 ---
 
-## 9. Phase 5 — Agentic Controller (IMP-044..IMP-052)
+## 9. Phase 5 - Agentic Controller (IMP-044..IMP-052)
 
 **Objective:** Full agent: classify → validate → select → plan → execute → aggregate → evidence → trace.
 
@@ -202,19 +202,19 @@ satquery/
 
 ---
 
-## 10. Phase 6 — Full API Surface (IMP-053..IMP-057)
+## 10. Phase 6 - Full API Surface (IMP-053..IMP-057)
 
 | Task | Description |
 |------|-------------|
 | IMP-053 | `/health`, `/registry`, `/models`, `/sessions` endpoints |
-| IMP-054 | `/ingest`, `/validate`, `/describe` (Phase 1) — harden |
-| IMP-055 | `/query` (Phase 5) — harden: streaming optional, timeouts, cancellation |
+| IMP-054 | `/ingest`, `/validate`, `/describe` (Phase 1) - harden |
+| IMP-055 | `/query` (Phase 5) - harden: streaming optional, timeouts, cancellation |
 | IMP-056 | `/evidence/{id}`, `/report/{id}`, `/trace/{id}` download endpoints |
 | IMP-057 | OpenAPI spec generation; contract test suite (R-1..R-15) all green |
 
 ---
 
-## 11. Phase 7 — GUI / Web Application (IMP-058..IMP-063)
+## 11. Phase 7 - GUI / Web Application (IMP-058..IMP-063)
 
 | Task | Description |
 |------|-------------|
@@ -225,11 +225,11 @@ satquery/
 | IMP-062 | Report download: HTML/PDF with images, overlays, trace, confidence |
 | IMP-063 | Session history: list, replay, export |
 
-**Decision (DEC-027):** Frontend family TBD — spike in Week 1.
+**Decision (DEC-027):** Frontend family TBD - spike in Week 1.
 
 ---
 
-## 12. Phase 8 — Evidence & Reports (IMP-064..IMP-068)
+## 12. Phase 8 - Evidence & Reports (IMP-064..IMP-068)
 
 | Task | Description |
 |------|-------------|
@@ -241,7 +241,7 @@ satquery/
 
 ---
 
-## 13. Phase 9 — Integration Hardening (IMP-069..IMP-073)
+## 13. Phase 9 - Integration Hardening (IMP-069..IMP-073)
 
 | Task | Description |
 |------|-------------|
@@ -253,7 +253,7 @@ satquery/
 
 ---
 
-## 14. Phase 10 — Evaluation Harness & Dry-Run (IMP-074..IMP-078)
+## 14. Phase 10 - Evaluation Harness & Dry-Run (IMP-074..IMP-078)
 
 | Task | Description |
 |------|-------------|
@@ -265,7 +265,7 @@ satquery/
 
 ---
 
-## 15. Phase 11 — Demo, Packaging, Compliance (IMP-079..IMP-084)
+## 15. Phase 11 - Demo, Packaging, Compliance (IMP-079..IMP-084)
 
 | Task | Description |
 |------|-------------|
@@ -314,7 +314,7 @@ satquery/
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| EarthDial weight license blocks Model A | S1/S2/S4 primary unusable | Fallback: InternVL3-1B + BEN.txt FT (Model_Selection.md primary) — ready as Plan B |
+| EarthDial weight license blocks Model A | S1/S2/S4 primary unusable | Fallback: InternVL3-1B + BEN.txt FT (Model_Selection.md primary) - ready as Plan B |
 | DeltaVLM weights not on HF (reproduce Bi-VE+IDPM+Q-former) | S3 delay | Start reproduction early; Qwen3.5-2B + ChangeChat LoRA is fallback (Model_Selection.md backup) |
 | DOFA wavelength inputs for Cartosat-2S/RISAT unknown | S4 sensor gap | Sensor profiles (IMP-009, OTD-103) + ISRO doc request; proxy test on Sentinel |
 | 3 models × 2 LLMs exceed GPU budget | Deployment failure | Int8 co-residency (~8.5 GB) + lazy load/evict; validate on cloud GPU early (IMP-020 spike) |

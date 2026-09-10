@@ -6,10 +6,10 @@ from app.data.preprocessing import PreprocessingService
 
 class OpticalSARFusionTool(ToolBase):
     """
-    Slot S4: Cross-Modal Optical-SAR Joint Analysis.
+    Slot S4: Cross-Modal Optical/Multi-Spectral-SAR Joint Analysis (Model B).
     Architecture: DOFA ViT-B (Wavelength Conditioned) + Cross-Attention Head + Model A LLM.
-    Combines optical spectral characteristics with SAR structural/dielectric radar signatures.
-    Enforces strict joint-use across both Optical and SAR modalities.
+    Combines optical and multi-spectral spectral characteristics with SAR structural/dielectric radar signatures.
+    Enforces strict joint-use across Optical/Multi-Spectral and SAR modalities.
     """
 
     def __init__(self, descriptor: Dict[str, Any], runtime_mgr):
@@ -79,6 +79,31 @@ class OpticalSARFusionTool(ToolBase):
             )
             conf = 0.93
 
+        evidence_items = [
+            {
+                "type": "optical",
+                "source_model": "dofa",
+                "description": f"Optical spectral reflectance and chromatic texture features extracted via DOFA ViT-B (wavelengths: {opt_wls} µm).",
+                "wavelengths_um": opt_wls,
+                "modality": opt_env.modality,
+                "image_id": opt_env.image_id
+            },
+            {
+                "type": "sar",
+                "source_model": "dofa",
+                "description": f"SAR polarimetric backscatter and structural double-bounce features extracted via DOFA ViT-B (wavelengths: {sar_wls} µm).",
+                "wavelengths_um": sar_wls,
+                "modality": "sar",
+                "image_id": sar_env.image_id
+            },
+            {
+                "type": "joint",
+                "source_model": "dofa",
+                "description": "Cross-attention multimodal fusion combining optical surface reflectance with SAR dielectric geometry.",
+                "score": round(conf, 3)
+            }
+        ]
+
         return ToolOutput(
             tool_name=self.name,
             model_name=self.model_name,
@@ -87,6 +112,7 @@ class OpticalSARFusionTool(ToolBase):
             confidence=round(conf, 3),
             evidence_type="opt_sar_pair",
             evidence_ptr=f"{opt_env.image_id}__{sar_env.image_id}",
+            evidence=evidence_items,
             parameters_used=clean_params,
             metadata={
                 "optical_image_id": opt_env.image_id,

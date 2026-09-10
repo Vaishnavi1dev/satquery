@@ -16,9 +16,10 @@ class ToolOutput(BaseModel):
     model_name: str
     text: str
     boxes: Optional[List[List[int]]] = None  # [ [x1, y1, x2, y2], ... ]
-    confidence: float = Field(ge=0.0, le=1.0)
+    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     evidence_type: str  # "analysed_image", "bi_temporal_pair", "opt_sar_pair"
     evidence_ptr: Optional[str] = None
+    evidence: List[Dict[str, Any]] = Field(default_factory=list)
     parameters_used: Dict[str, Any] = Field(default_factory=dict)
     metadata: Dict[str, Any] = Field(default_factory=dict)
 

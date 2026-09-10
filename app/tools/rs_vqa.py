@@ -98,6 +98,17 @@ class SingleImageVQATool(ToolBase):
                 )
                 conf = 0.91
 
+        evidence_items = [
+            {
+                "type": "vqa_reasoning",
+                "source_model": "earthdial",
+                "description": f"EarthDial-4B Visual Question Answering inference on {modality} observation.",
+                "score": round(conf, 3),
+                "modality": modality,
+                "region": None,
+            }
+        ]
+
         return ToolOutput(
             tool_name=self.name,
             model_name=self.model_name,
@@ -106,6 +117,7 @@ class SingleImageVQATool(ToolBase):
             confidence=round(conf, 3),
             evidence_type="analysed_image",
             evidence_ptr=envelope.image_id if envelope else None,
+            evidence=evidence_items,
             parameters_used=clean_params,
             metadata={"modality": modality, "slot": "S1"}
         )
