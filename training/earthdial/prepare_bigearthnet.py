@@ -8,7 +8,7 @@ import os
 import json
 import argparse
 import random
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 
 # 19 Corine Land Cover (CLC) classes in BigEarthNet-19 standard taxonomy
@@ -140,7 +140,7 @@ def generate_bitemporal_conversation(patch_a: str, patch_b: str, labels_a: List[
 def download_and_ingest_bigearthnet(
     output_json: str = "data/bigearthnet_mm_instructions.json",
     image_dir: str = "data/bigearthnet_patches",
-    num_samples: int = 1200,
+    num_samples: Optional[int] = 1200,
     hf_dataset_name: str = "GFM-Bench/BigEarthNet"
 ) -> List[Dict[str, Any]]:
     """
@@ -163,9 +163,9 @@ def download_and_ingest_bigearthnet(
             for f in files:
                 if f.lower().endswith(('.jpg', '.jpeg', '.png', '.tif', '.tiff')) and "bigearth" in root.lower():
                     kaggle_patches.append(os.path.join(root, f))
-                    if len(kaggle_patches) >= num_samples:
+                    if num_samples is not None and len(kaggle_patches) >= num_samples:
                         break
-            if len(kaggle_patches) >= num_samples:
+            if num_samples is not None and len(kaggle_patches) >= num_samples:
                 break
 
     if kaggle_patches:
@@ -206,9 +206,9 @@ def download_and_ingest_bigearthnet(
             from PIL import Image
             import numpy as np
 
-            ds = load_dataset(hf_dataset_name, split="train", streaming=True)
+            ds = load_dataset(hf_dataset_name, split="train", streaming=True, trust_remote_code=True)
             for idx, item in enumerate(ds):
-                if len(records) >= num_samples:
+                if num_samples is not None and len(records) >= num_samples:
                     break
                 try:
                     # Extract optical / RGB image
@@ -249,7 +249,8 @@ def download_and_ingest_bigearthnet(
                         rec["conversations"][0]["value"] = f"<image>\n{rec['conversations'][0]['value']}"
                     records.append(rec)
                     if len(records) % 200 == 0:
-                        print(f"  Streamed and prepared {len(records)}/{num_samples} patches from Hugging Face...")
+                        total_disp = num_samples if num_samples is not None else "all"
+                        print(f"  Streamed and prepared {len(records)}/{total_disp} patches from Hugging Face...")
                 except Exception:
                     continue
             if records:
@@ -259,11 +260,12 @@ def download_and_ingest_bigearthnet(
 
     # --- Mode 3: Calibrated Remote Sensing Fallback ---
     if len(records) < 50:
-        print(f"Generating {num_samples} calibrated multi-spectral Sentinel-1 & 2 patches with Corine Land Cover labels...")
+        fallback_count = num_samples if num_samples is not None else 1200
+        print(f"Generating {fallback_count} calibrated multi-spectral Sentinel-1 & 2 patches with Corine Land Cover labels...")
         from PIL import Image
         import numpy as np
 
-        for i in range(num_samples):
+        for i in range(fallback_count):
             sample_classes = random.sample(BIGEARTHNET_19_CLASSES, k=random.randint(1, 3))
             img_array = np.zeros((224, 224, 3), dtype=np.uint8)
             if any("forest" in c.lower() or "woodland" in c.lower() for c in sample_classes):
