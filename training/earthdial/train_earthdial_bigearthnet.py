@@ -51,6 +51,8 @@ def parse_args():
     parser.add_argument("--push_to_hub", action="store_true", default=False, help="Push adapter to Hugging Face Hub")
     parser.add_argument("--hf_repo", type=str, default="VMamidala/satquery-model-c-earthdial-bigearthnet",
                         help="Destination HF repository name (defaults to VMamidala/satquery-model-c-earthdial-bigearthnet)")
+    parser.add_argument("--num_samples", type=int, default=None,
+                        help="Number of samples to ingest if data_path does not exist (default: None for full dataset)")
     return parser.parse_args()
 
 
@@ -66,7 +68,7 @@ class InstructionDataset(Dataset):
         return self.records[idx]
 
 
-def load_dataset_records(path: str) -> List[Dict[str, Any]]:
+def load_dataset_records(path: str, num_samples: int = None) -> List[Dict[str, Any]]:
     """Load and validate JSON instruction dataset."""
     if not os.path.exists(path):
         print(f"Dataset path {path} not found. Ingesting/downloading BigEarthNet samples...")
@@ -74,7 +76,7 @@ def load_dataset_records(path: str) -> List[Dict[str, Any]]:
             from training.earthdial.prepare_bigearthnet import download_and_ingest_bigearthnet
         except ImportError:
             from prepare_bigearthnet import download_and_ingest_bigearthnet
-        download_and_ingest_bigearthnet(output_json=path, num_samples=300)
+        download_and_ingest_bigearthnet(output_json=path, num_samples=num_samples)
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
     return data
@@ -180,6 +182,24 @@ def setup_model_and_tokenizer(model_name: str, use_4bit: bool = True, grad_check
     if local_rank == 0:
         model.print_trainable_parameters()
 
+    # Filter unexpected kwargs (such as inputs_embeds) injected by PEFT into InternVLChatModel
+    import inspect
+    target = model
+    while hasattr(target, "base_model") or hasattr(target, "model"):
+        if hasattr(target, "base_model"):
+            target = target.base_model
+        elif hasattr(target, "model"):
+            target = target.model
+    cls = type(target)
+    if not getattr(cls, "_is_peft_patched", False):
+        orig_fwd = cls.forward
+        sig = inspect.signature(orig_fwd)
+        def _safe_fwd(self, *args, **kwargs):
+            filtered = {k: v for k, v in kwargs.items() if k in sig.parameters}
+            return orig_fwd(self, *args, **filtered)
+        cls.forward = _safe_fwd
+        cls._is_peft_patched = True
+
     return model, tokenizer
 
 
@@ -250,7 +270,7 @@ def main():
         print(f"Mode: {'Multi-GPU DDP' if is_ddp else 'Single Device'} | World Size: {world_size}")
         print(f"Gradient Checkpointing: {args.grad_checkpoint} | 4-bit QLoRA: {args.use_4bit}")
 
-    records = load_dataset_records(args.data_path)
+    records = load_dataset_records(args.data_path, args.num_samples)
     dataset = InstructionDataset(records)
 
     # Non-CUDA / Simulation Fallback
