@@ -69,9 +69,12 @@ class InstructionDataset(Dataset):
 def load_dataset_records(path: str) -> List[Dict[str, Any]]:
     """Load and validate JSON instruction dataset."""
     if not os.path.exists(path):
-        print(f"Dataset path {path} not found. Generating default training samples...")
-        from prepare_bigearthnet import build_synthetic_bigearthnet_dataset
-        build_synthetic_bigearthnet_dataset(path, num_samples=300)
+        print(f"Dataset path {path} not found. Ingesting/downloading BigEarthNet samples...")
+        try:
+            from training.earthdial.prepare_bigearthnet import download_and_ingest_bigearthnet
+        except ImportError:
+            from prepare_bigearthnet import download_and_ingest_bigearthnet
+        download_and_ingest_bigearthnet(output_json=path, num_samples=300)
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
     return data
