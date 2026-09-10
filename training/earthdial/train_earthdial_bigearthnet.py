@@ -125,12 +125,18 @@ def setup_model_and_tokenizer(model_name: str, use_4bit: bool = True, grad_check
     except Exception:
         pass
 
+    import gc
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
     try:
         from transformers import AutoModel
         model = AutoModel.from_pretrained(
             model_name,
             quantization_config=quant_config,
             torch_dtype=compute_dtype,
+            low_cpu_mem_usage=True,
             device_map=device_map,
             trust_remote_code=True
         )
@@ -140,6 +146,7 @@ def setup_model_and_tokenizer(model_name: str, use_4bit: bool = True, grad_check
             model_name,
             quantization_config=quant_config,
             torch_dtype=compute_dtype,
+            low_cpu_mem_usage=True,
             device_map=device_map,
             trust_remote_code=True
         )
