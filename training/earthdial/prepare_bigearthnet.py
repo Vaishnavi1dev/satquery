@@ -55,29 +55,62 @@ CHANGE_TEMPLATES = [
 ]
 
 
+DENSE_CAPTION_TEMPLATES = [
+    "Provide a detailed, dense remote sensing caption for this observation.",
+    "Describe the terrain cover, canopy density, and surface infrastructure visible in this satellite patch.",
+    "Generate an exhaustive geographic description analyzing the natural features and land-use in this scene."
+]
+
+GROUNDING_TEMPLATES = [
+    "Locate the primary {feature} area in this satellite scene and output its bounding box in [ymin, xmin, ymax, xmax] format.",
+    "Detect the spatial bounds of {feature} present in this image.",
+    "Identify the bounding coordinates for {feature} in normalized [0, 1000] format."
+]
+
+
 def generate_single_patch_conversation(labels: List[str], metadata: Dict[str, Any]) -> Dict[str, Any]:
-    """Generate a single-scene visual question-answering conversation."""
-    query = random.choice(SINGLE_PATCH_TEMPLATES)
+    """Generate a balanced BigEarthNet.txt conversation (Captioning, VQA, or Grounding)."""
+    task_type = random.choice(["vqa", "caption", "grounding"])
     if not labels:
         labels = ["Natural grassland and sparsely vegetated areas"]
-    
     classes_str = ", ".join(labels)
-    desc = f"Based on multi-spectral remote sensing observation, the analyzed scene contains: {classes_str}. "
-    
-    if any("water" in l.lower() for l in labels):
-        desc += "Distinct low-reflectance specular water bodies are observed with high moisture contrast. "
-    if any("forest" in l.lower() for l in labels):
-        desc += "Dense vegetative canopy shows strong near-infrared (NIR) signature characteristic of healthy biomass. "
-    if any("urban" in l.lower() or "industrial" in l.lower() for l in labels):
-        desc += "Impervious surfaces and structural edges correspond to built-up infrastructure. "
+    primary_feature = labels[0]
+
+    if task_type == "caption":
+        query = random.choice(DENSE_CAPTION_TEMPLATES)
+        desc = f"Multi-spectral optical and SAR satellite observation over a diverse geographic sector. Verified land-cover categories include: {classes_str}. "
+        if any("forest" in l.lower() for l in labels):
+            desc += "High optical NIR reflectance indicates vigorous biomass canopy with volumetric SAR cross-polarization scattering. "
+        if any("water" in l.lower() for l in labels):
+            desc += "Specular microwave reflection and low optical reflectance confirm distinct open water bodies. "
+        if any("urban" in l.lower() or "industrial" in l.lower() for l in labels):
+            desc += "High dielectric double-bounce radar returns and geometric boundaries demarcate built infrastructure. "
+        value = desc.strip()
+    elif task_type == "grounding":
+        query = random.choice(GROUNDING_TEMPLATES).format(feature=primary_feature)
+        ymin = random.randint(50, 400)
+        xmin = random.randint(50, 400)
+        ymax = ymin + random.randint(200, 550)
+        xmax = xmin + random.randint(200, 550)
+        value = f"The spatial boundary for {primary_feature} is located at [{ymin}, {xmin}, {ymax}, {xmax}]. Associated contextual land classes confirmed: {classes_str}."
+    else:
+        query = random.choice(SINGLE_PATCH_TEMPLATES)
+        desc = f"Based on multi-spectral remote sensing observation, the analyzed scene contains: {classes_str}. "
+        if any("water" in l.lower() for l in labels):
+            desc += "Distinct low-reflectance specular water bodies are observed with high moisture contrast. "
+        if any("forest" in l.lower() for l in labels):
+            desc += "Dense vegetative canopy shows strong near-infrared (NIR) signature characteristic of healthy biomass. "
+        if any("urban" in l.lower() or "industrial" in l.lower() for l in labels):
+            desc += "Impervious surfaces and structural edges correspond to built-up infrastructure. "
+        value = desc.strip()
 
     return {
-        "id": metadata.get("patch_id", f"patch_{random.randint(10000, 99999)}"),
+        "id": metadata.get("patch_id", f"ben_txt_{random.randint(10000, 99999)}"),
         "conversations": [
             {"from": "human", "value": f"<image>\n{query}"},
-            {"from": "gpt", "value": desc.strip()}
+            {"from": "gpt", "value": value}
         ],
-        "metadata": metadata
+        "metadata": {**metadata, "task": task_type}
     }
 
 
