@@ -49,7 +49,8 @@ def parse_args():
     parser.add_argument("--use_4bit", action="store_true", default=True, help="Load base model in 4-bit NF4 QLoRA")
     parser.add_argument("--grad_checkpoint", action="store_true", default=True, help="Enable gradient checkpointing")
     parser.add_argument("--push_to_hub", action="store_true", default=False, help="Push adapter to Hugging Face Hub")
-    parser.add_argument("--hf_repo", type=str, default=None, help="Destination HF repository name")
+    parser.add_argument("--hf_repo", type=str, default="VMamidala/satquery-model-c-earthdial-bigearthnet",
+                        help="Destination HF repository name (defaults to VMamidala/satquery-model-c-earthdial-bigearthnet)")
     return parser.parse_args()
 
 
@@ -184,6 +185,24 @@ def save_checkpoint(model, tokenizer, optimizer, scheduler, step: int, epoch: in
     }
     torch.save(state_dict, os.path.join(d, "training_state.pt"))
     print(f"[Checkpoint] Saved checkpoint '{tag}' to {d}")
+
+
+def sync_to_hub(folder_path: str, repo_id: str):
+    """Sync a checkpoint folder to a Hugging Face Hub repository."""
+    if not repo_id:
+        return
+    try:
+        from huggingface_hub import HfApi
+        api = HfApi()
+        api.create_repo(repo_id=repo_id, repo_type="model", private=True, exist_ok=True)
+        api.upload_folder(
+            folder_path=folder_path,
+            repo_id=repo_id,
+            repo_type="model"
+        )
+        print(f"[Hub] Synced checkpoint to https://huggingface.co/{repo_id}")
+    except Exception as e:
+        print(f"[Hub] Sync notification: {e}")
 
 
 def main():
@@ -327,6 +346,8 @@ def main():
                     # Periodic Rolling Checkpoint
                     if is_rank0 and args.save_steps and opt_step % args.save_steps == 0:
                         save_checkpoint(model, tokenizer, optimizer, scheduler, opt_step, epoch, args.output_dir, "ckpt_latest", is_rank0=is_rank0)
+                        if args.push_to_hub and args.hf_repo:
+                            sync_to_hub(os.path.join(args.output_dir, "ckpt_latest"), args.hf_repo)
 
             # End of Epoch Checkpoint
             if is_rank0:
@@ -339,6 +360,8 @@ def main():
         if is_rank0:
             print("\n[Interrupt] Caught KeyboardInterrupt. Saving emergency checkpoint...")
             save_checkpoint(model, tokenizer, optimizer, scheduler, opt_step, epoch, args.output_dir, "ckpt_interrupted", is_rank0=is_rank0)
+            if args.push_to_hub and args.hf_repo:
+                sync_to_hub(os.path.join(args.output_dir, "ckpt_interrupted"), args.hf_repo)
         raise
 
     # Final Save
@@ -347,17 +370,7 @@ def main():
         print(f"[Complete] EarthDial fine-tuning finished in {(time.time()-t0)/60:.1f} minutes.")
 
         if args.push_to_hub and args.hf_repo:
-            try:
-                from huggingface_hub import HfApi
-                api = HfApi()
-                api.upload_folder(
-                    folder_path=os.path.join(args.output_dir, "ckpt_final"),
-                    repo_id=args.hf_repo,
-                    repo_type="model"
-                )
-                print(f"[Hub] Pushed final adapter to https://huggingface.co/{args.hf_repo}")
-            except Exception as e:
-                print(f"[Hub] Upload failed: {e}")
+            sync_to_hub(os.path.join(args.output_dir, "ckpt_final"), args.hf_repo)
 
     if is_ddp:
         dist.destroy_process_group()
