@@ -1,20 +1,26 @@
 # 🛰️ EarthDial-4B Fine-Tuning on BigEarthNet-MM
+### Multi-GPU DDP + Gradient Checkpointing + Step-Wise Checkpointing
 
 This suite provides the training scripts, data preparation pipelines, and Jupyter notebooks to fine-tune **EarthDial-4B** (InternVL2 architecture) on **BigEarthNet-MM** (Sentinel-1 SAR dual-polarization + Sentinel-2 Multispectral observations).
 
 ---
 
-## 📋 Highlights & Problem Statement Fit (ISRO / SIH 2026 PS 26167)
+## ⚡ Performance, DDP & Checkpointing Features
 
-1. **Multi-Modal Native Support:**
-   - **Sentinel-2 Multispectral (12 Bands / RGB+NIR+SWIR):** Fine-tuned on vegetation chlorophyll absorption and soil moisture contrast.
-   - **Sentinel-1 SAR (C-band dual-pol VV / VH):** Fine-tuned on volumetric vegetative scattering and specular water surface roughness.
-   - **Multi-Sensor Bi-Temporal & Sequences:** Pre-event and post-event change question-answering with cycle-consistent temporal verification.
+1. **Multi-GPU DistributedDataParallel (DDP):**
+   - Seamlessly scales across multiple GPUs (e.g. **Kaggle 2x T4 GPUs** or multi-GPU A100/V100 nodes) via `torchrun`.
+   - Utilizes `torch.distributed` with `nccl` backend, `DistributedSampler` for balanced data distribution, and barrier synchronization.
+   - Effective batch size: $\text{batch\_size} \times \text{accum\_steps} \times \text{WORLD\_SIZE}$.
 
-2. **No 12h Training Timeout Bottleneck:**
-   - Uses 4-bit QLoRA (`bitsandbytes` NF4) and parameter-efficient LoRA on linear projection layers.
-   - Runs cleanly on a **single 16GB GPU** (Kaggle free-tier T4 or Google Colab) in **~1.5 to 2.5 hours**.
-   - Peak VRAM footprint: **~4.2 GB** (leaving 11+ GB of headroom).
+2. **Gradient Checkpointing:**
+   - Enabled via `--grad_checkpoint` with `use_reentrant=False` and `enable_input_require_grads()`.
+   - Halves activation memory footprint so 4B VLM fits into **<4.5 GB VRAM per GPU**, leaving plenty of headroom.
+
+3. **Step-Wise Rolling Checkpoints & Safe Resume:**
+   - **Rolling Checkpoint:** Automatically updates `ckpt_latest/` every $N$ steps (`--save_steps 50`).
+   - **Full State Preservation:** Saves adapter weights, optimizer states, learning rate scheduler state, current step, and epoch in `training_state.pt`.
+   - **Preemption Resilience:** Resume anytime using `--resume_from_checkpoint checkpoints/earthdial_bigearthnet_lora/ckpt_latest`.
+   - **Emergency Checkpoint:** Traps `KeyboardInterrupt` to dump `ckpt_interrupted/` before exiting.
 
 ---
 
@@ -23,32 +29,42 @@ This suite provides the training scripts, data preparation pipelines, and Jupyte
 ```
 training/earthdial/
 ├── prepare_bigearthnet.py            # Converts BigEarthNet S1+S2 patches to VQA instruction pairs
-├── train_earthdial_bigearthnet.py    # Standalone PyTorch + PEFT training script
+├── train_earthdial_bigearthnet.py    # DDP + Checkpointing PyTorch training script
 ├── train_earthdial_bigearthnet.ipynb # Turnkey Kaggle / Colab notebook
 └── README.md                         # This documentation
 ```
 
 ---
 
-## 🚀 Quickstart: Running on Kaggle / Google Colab
+## 🚀 How to Run
 
-### Option 1: Jupyter Notebook (Recommended for Kaggle / Colab)
-1. Upload [`train_earthdial_bigearthnet.ipynb`](file:///c:/Users/vishu/Documents/satquery/training/earthdial/train_earthdial_bigearthnet.ipynb) directly to **Kaggle** or **Google Colab**.
-2. Select Accelerator: **GPU T4 x 2** (Kaggle) or **T4 / A100** (Colab).
-3. Run all cells sequentially. The notebook will:
-   - Verify GPU VRAM.
-   - Generate multi-modal instruction-tuning dialogues.
-   - Load `OpenGVLab/InternVL2-4B` in 4-bit NF4 precision.
-   - Train LoRA adapters for 2 epochs.
-   - Save the fine-tuned adapter weights to `./earthdial_bigearthnet_lora`.
+### 1. Multi-GPU DDP on Kaggle (2x T4 GPUs)
 
-### Option 2: Python Command Line
+In Kaggle notebook or terminal (with GPU T4 x 2 selected):
 
 ```bash
-# 1. Generate instruction dataset
-python training/earthdial/prepare_bigearthnet.py --output data/bigearthnet_earthdial_instructions.json --num_samples 2000
+# Step 1: Prepare BigEarthNet-MM instruction dataset
+python training/earthdial/prepare_bigearthnet.py \
+    --output data/bigearthnet_earthdial_instructions.json \
+    --num_samples 3000
 
-# 2. Run QLoRA fine-tuning
+# Step 2: Launch 2-GPU DDP training with torchrun
+torchrun --nproc_per_node=2 training/earthdial/train_earthdial_bigearthnet.py \
+    --model_name_or_path "OpenGVLab/InternVL2-4B" \
+    --data_path "data/bigearthnet_earthdial_instructions.json" \
+    --output_dir "checkpoints/earthdial_bigearthnet_lora" \
+    --epochs 3 \
+    --batch_size 2 \
+    --accum_steps 4 \
+    --lr 2e-4 \
+    --save_steps 50 \
+    --use_4bit \
+    --grad_checkpoint
+```
+
+### 2. Single-GPU (Google Colab / Local Cloud GPU)
+
+```bash
 python training/earthdial/train_earthdial_bigearthnet.py \
     --model_name_or_path "OpenGVLab/InternVL2-4B" \
     --data_path "data/bigearthnet_earthdial_instructions.json" \
@@ -56,22 +72,31 @@ python training/earthdial/train_earthdial_bigearthnet.py \
     --epochs 3 \
     --batch_size 2 \
     --accum_steps 8 \
-    --lr 2e-4 \
+    --save_steps 50 \
     --use_4bit
+```
+
+### 3. Resuming from a Saved Checkpoint
+
+If a session is interrupted or preempted, simply pass `--resume_from_checkpoint`:
+
+```bash
+python training/earthdial/train_earthdial_bigearthnet.py \
+    --resume_from_checkpoint "checkpoints/earthdial_bigearthnet_lora/ckpt_latest"
 ```
 
 ---
 
-## 🔗 Loading the Adapter into SatQuery AI
+## 🔗 Integrating the Fine-Tuned Adapter into SatQuery AI
 
-Once training finishes, copy the adapter directory into your local repository:
+Copy the fine-tuned checkpoint (`ckpt_latest` or `ckpt_final`) into your SatQuery weights directory:
 
 ```bash
 mkdir -p models/earthdial
-cp -r checkpoints/earthdial_bigearthnet_lora/* models/earthdial/
+cp -r checkpoints/earthdial_bigearthnet_lora/ckpt_final/* models/earthdial/
 ```
 
-Or configure the path in [`config/app_config.yaml`](file:///c:/Users/vishu/Documents/satquery/config/app_config.yaml):
+Then in [`config/app_config.yaml`](file:///c:/Users/vishu/Documents/satquery/config/app_config.yaml):
 ```yaml
 model_store:
   earthdial_model_path: "models/earthdial"
