@@ -184,28 +184,31 @@ def setup_model_and_tokenizer(model_name: str, use_4bit: bool = True, grad_check
 
     # Filter unexpected kwargs (such as inputs_embeds) injected by PEFT into InternVLChatModel
     import inspect
-    target = model
-    seen = set()
-    while id(target) not in seen:
-        seen.add(id(target))
-        if hasattr(target, "model") and target.model is not target and id(target.model) not in seen:
-            target = target.model
-        elif hasattr(target, "base_model") and target.base_model is not target and id(target.base_model) not in seen:
-            target = target.base_model
-        else:
-            break
-    cls = type(target)
-    if not getattr(cls, "_is_peft_patched", False):
-        orig_fwd = cls.forward
-        sig = inspect.signature(orig_fwd)
-        has_var_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
-        def _safe_fwd(self, *args, **kwargs):
-            if has_var_kw:
-                return orig_fwd(self, *args, **kwargs)
-            filtered = {k: v for k, v in kwargs.items() if k in sig.parameters}
-            return orig_fwd(self, *args, **filtered)
-        cls.forward = _safe_fwd
-        cls._is_peft_patched = True
+    base = getattr(model, "base_model", None)
+    if base is not None:
+        base_cls = type(base)
+        if not getattr(base_cls, "_peft_patched", False):
+            orig_base_fwd = base_cls.forward
+            def _safe_base_fwd(self, *args, **kwargs):
+                kwargs.pop("inputs_embeds", None)
+                kwargs.pop("task_ids", None)
+                return orig_base_fwd(self, *args, **kwargs)
+            base_cls.forward = _safe_base_fwd
+            base_cls._peft_patched = True
+
+    inner = getattr(base, "model", None) if base is not None else None
+    if inner is not None:
+        inner_cls = type(inner)
+        if not getattr(inner_cls, "_peft_patched", False):
+            orig_inner_fwd = inner_cls.forward
+            sig = inspect.signature(orig_inner_fwd)
+            def _safe_inner_fwd(self, *args, **kwargs):
+                kwargs.pop("inputs_embeds", None)
+                kwargs.pop("task_ids", None)
+                filtered = {k: v for k, v in kwargs.items() if k in sig.parameters}
+                return orig_inner_fwd(self, *args, **filtered)
+            inner_cls.forward = _safe_inner_fwd
+            inner_cls._peft_patched = True
 
     return model, tokenizer
 
