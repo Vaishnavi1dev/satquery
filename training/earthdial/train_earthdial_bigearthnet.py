@@ -185,16 +185,23 @@ def setup_model_and_tokenizer(model_name: str, use_4bit: bool = True, grad_check
     # Filter unexpected kwargs (such as inputs_embeds) injected by PEFT into InternVLChatModel
     import inspect
     target = model
-    while hasattr(target, "base_model") or hasattr(target, "model"):
-        if hasattr(target, "base_model"):
-            target = target.base_model
-        elif hasattr(target, "model"):
+    seen = set()
+    while id(target) not in seen:
+        seen.add(id(target))
+        if hasattr(target, "model") and target.model is not target and id(target.model) not in seen:
             target = target.model
+        elif hasattr(target, "base_model") and target.base_model is not target and id(target.base_model) not in seen:
+            target = target.base_model
+        else:
+            break
     cls = type(target)
     if not getattr(cls, "_is_peft_patched", False):
         orig_fwd = cls.forward
         sig = inspect.signature(orig_fwd)
+        has_var_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
         def _safe_fwd(self, *args, **kwargs):
+            if has_var_kw:
+                return orig_fwd(self, *args, **kwargs)
             filtered = {k: v for k, v in kwargs.items() if k in sig.parameters}
             return orig_fwd(self, *args, **filtered)
         cls.forward = _safe_fwd
