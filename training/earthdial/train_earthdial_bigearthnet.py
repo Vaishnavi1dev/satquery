@@ -187,30 +187,23 @@ def setup_model_and_tokenizer(model_name: str, use_4bit: bool = True, grad_check
     base = getattr(model, "base_model", None)
     if base is not None:
         base_cls = type(base)
-        if not getattr(base_cls, "_peft_patched", False):
-            orig_base_fwd = base_cls.forward
-            def _safe_base_fwd(self, *args, **kwargs):
-                kwargs.pop("inputs_embeds", None)
-                kwargs.pop("task_ids", None)
-                return orig_base_fwd(self, *args, **kwargs)
-            base_cls.forward = _safe_base_fwd
-            base_cls._peft_patched = True
+        def _safe_base_fwd(self, *args, **kwargs):
+            kwargs.pop("inputs_embeds", None)
+            kwargs.pop("task_ids", None)
+            return self.model(*args, **kwargs)
+        base_cls.forward = _safe_base_fwd
 
     inner = getattr(base, "model", None) if base is not None else None
     if inner is not None:
         inner_cls = type(inner)
-        if not getattr(inner_cls, "_peft_patched", False):
-            orig_inner_fwd = inner_cls.forward
-            sig = inspect.signature(orig_inner_fwd)
-            def _safe_inner_fwd(self, *args, **kwargs):
-                kwargs.pop("inputs_embeds", None)
-                kwargs.pop("task_ids", None)
-                if "pixel_values" not in kwargs and not args:
-                    kwargs["pixel_values"] = None
-                filtered = {k: v for k, v in kwargs.items() if k in sig.parameters}
-                return orig_inner_fwd(self, *args, **filtered)
-            inner_cls.forward = _safe_inner_fwd
-            inner_cls._peft_patched = True
+        def _safe_inner_fwd(self, *args, **kwargs):
+            return self.language_model(
+                input_ids=kwargs.get("input_ids", None),
+                attention_mask=kwargs.get("attention_mask", None),
+                labels=kwargs.get("labels", None),
+                return_dict=True
+            )
+        inner_cls.forward = _safe_inner_fwd
 
     return model, tokenizer
 
