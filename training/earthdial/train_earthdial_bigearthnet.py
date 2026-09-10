@@ -110,8 +110,20 @@ def setup_model_and_tokenizer(model_name: str, use_4bit: bool = True, grad_check
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    # Device allocation for DDP vs single GPU
-    device_map = {"": local_rank} if torch.cuda.is_available() else None
+    # Compatibility fix for Transformers >=4.49 with custom remote code models (InternVL2)
+    _orig_getattr = torch.nn.Module.__getattr__
+    def _patched_getattr(self, name):
+        if name == "all_tied_weights_keys":
+            return {}
+        return _orig_getattr(self, name)
+    torch.nn.Module.__getattr__ = _patched_getattr
+
+    try:
+        from transformers import PreTrainedModel
+        if not hasattr(PreTrainedModel, "all_tied_weights_keys"):
+            PreTrainedModel.all_tied_weights_keys = property(lambda self: {})
+    except Exception:
+        pass
 
     try:
         from transformers import AutoModel
