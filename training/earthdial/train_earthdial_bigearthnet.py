@@ -193,12 +193,14 @@ def sync_to_hub(folder_path: str, repo_id: str):
         return
     try:
         from huggingface_hub import HfApi
-        api = HfApi()
+        token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
+        api = HfApi(token=token)
         api.create_repo(repo_id=repo_id, repo_type="model", private=True, exist_ok=True)
         api.upload_folder(
             folder_path=folder_path,
             repo_id=repo_id,
-            repo_type="model"
+            repo_type="model",
+            token=token
         )
         print(f"[Hub] Synced checkpoint to https://huggingface.co/{repo_id}")
     except Exception as e:
