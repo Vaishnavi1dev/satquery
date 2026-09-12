@@ -1,0 +1,7 @@
+Recommended Queries for Bi-Temporal Change Analysis (CDVQA Style):
+---------------------------------------------------------------------
+Upload both `t1_pre_change_optical.jpg` and `t2_post_change_optical.jpg` together.
+
+1. What changed between these two dates, and where did the change occur?
+2. Has the built-up area increased, decreased, or remained unchanged?
+3. Detect changes between the pre-change and post-change imagery and generate a spatial difference map.

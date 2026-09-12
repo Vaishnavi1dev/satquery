@@ -1,0 +1,6 @@
+Recommended Queries for Single-Image Optical (VRSBench / RSVQA Style):
+-------------------------------------------------------------------------
+1. Describe the land-cover and major objects visible in this image.
+2. Highlight the water body referred to in the query.
+3. What type of land cover dominates this region, and are there buildings or transport networks?
+4. Is there an airport, residential settlement, or agricultural land present?

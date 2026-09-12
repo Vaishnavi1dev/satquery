@@ -1,0 +1,7 @@
+Recommended Queries for Cross-Modal Optical + SAR (BigEarthNet / ISRO-SAC Cartosat+RISAT Style):
+--------------------------------------------------------------------------------------------------
+Upload both `cartosat_sentinel2_optical.jpg` and `risat_sentinel1_sar.jpg` together.
+
+1. Use the optical and SAR images together to identify built-up and water-covered regions.
+2. Extract complementary information from this optical and SAR pair to analyze land cover under cloud cover.
+3. Compare the optical spectral response with the SAR radar backscatter to confirm urban structures.

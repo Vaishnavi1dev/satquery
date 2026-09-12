@@ -1,0 +1,5 @@
+Recommended Queries for Single-Image SAR (Sentinel-1 / RISAT Style):
+----------------------------------------------------------------------
+1. Describe the radar backscatter patterns and surface roughness in this SAR image.
+2. Identify dark areas indicating smooth surfaces or calm water bodies and bright double-bounce reflections from built structures.
+3. Analyze the texture and structural characteristics visible in this radar observation.
