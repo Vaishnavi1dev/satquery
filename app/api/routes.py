@@ -14,10 +14,13 @@ from app.runtime.manager import ModelRuntimeManager
 from app.agent.controller import AgentController, QueryExecutionResult
 
 
+from app.data.preprocessing import PreprocessingService
+
 router = APIRouter(prefix="/api")
 
 sandbox = StorageSandbox()
 ingestion_svc = ImageIngestionService()
+prep_svc = PreprocessingService()
 runtime_mgr = ModelRuntimeManager()
 registry_store = ToolRegistryStore(runtime_mgr=runtime_mgr)
 agent_controller = AgentController(registry=registry_store, sandbox=sandbox)
@@ -64,6 +67,11 @@ class ValidateRequest(BaseModel):
     task: Optional[str] = None
 
 
+class SpectralIndexRequest(BaseModel):
+    session_id: str
+    image_id: str
+
+
 # --- Endpoints ---
 
 @router.get("/health")
@@ -74,6 +82,7 @@ def get_health():
         "service": config.system.name,
         "version": config.system.version,
         "runtime": runtime_mgr.get_runtime_status(),
+        "checkpoint_artifacts": runtime_mgr.get_artifact_status(),
         "tool_registry_version": registry_store.version,
         "total_tools": len(registry_store.list_descriptors())
     }
@@ -229,3 +238,22 @@ def download_trace(trace_id: str, session_id: str = Query(...)):
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"Trace '{trace_id}' not found.")
     return FileResponse(path, media_type="application/x-jsonlines")
+
+
+@router.post("/spectral-indices")
+def get_spectral_indices(req: SpectralIndexRequest):
+    env = _get_envelope(req.session_id, req.image_id)
+    if not env:
+        raise HTTPException(status_code=404, detail=f"Image ID '{req.image_id}' not found in session '{req.session_id}'.")
+
+    img_path = Path(env.filepath)
+    if not img_path.exists():
+        raise HTTPException(status_code=404, detail="Underlying image file not found.")
+
+    data, tags = ingestion_svc.read_image_data(img_path)
+    indices = prep_svc.compute_spectral_indices(data, modality=env.modality)
+    return {
+        "image_id": req.image_id,
+        "modality": env.modality,
+        "indices": indices
+    }

@@ -166,10 +166,115 @@ REPORT_TEMPLATE = """
             border-top: 1px solid var(--border);
             padding-top: 20px;
         }
+        .print-btn {
+            background: #0284c7;
+            color: #ffffff;
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 6px;
+            padding: 8px 16px;
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s;
+        }
+        .print-btn:hover {
+            background: #0369a1;
+        }
+        .classification-header {
+            display: none;
+        }
+        @media print {
+            body {
+                background-color: #ffffff !important;
+                color: #0f172a !important;
+                padding: 10px 20px !important;
+            }
+            .container {
+                max-width: 100% !important;
+            }
+            .no-print {
+                display: none !important;
+            }
+            .classification-header {
+                display: block !important;
+                text-align: center;
+                font-size: 11px;
+                font-weight: 800;
+                letter-spacing: 2px;
+                color: #b91c1c;
+                padding: 4px;
+                border-top: 1px solid #b91c1c;
+                border-bottom: 1px solid #b91c1c;
+                margin-bottom: 15px;
+            }
+            .card {
+                background: #ffffff !important;
+                border: 1px solid #cbd5e1 !important;
+                page-break-inside: avoid;
+                color: #0f172a !important;
+                margin-bottom: 15px !important;
+                padding: 16px !important;
+            }
+            .title, .card h2 {
+                color: #0f172a !important;
+            }
+            .subtitle {
+                color: #0284c7 !important;
+            }
+            .meta-grid {
+                background: #f8fafc !important;
+                border: 1px solid #cbd5e1 !important;
+                padding: 10px !important;
+            }
+            .meta-item strong {
+                color: #64748b !important;
+            }
+            .meta-item span {
+                color: #0f172a !important;
+            }
+            .badge {
+                border: 1px solid #0284c7 !important;
+                color: #0284c7 !important;
+                background: #f0f9ff !important;
+            }
+            .answer-box {
+                color: #0f172a !important;
+            }
+            .input-card {
+                background: #f8fafc !important;
+                border: 1px solid #cbd5e1 !important;
+                page-break-inside: avoid;
+            }
+            table {
+                color: #0f172a !important;
+            }
+            th {
+                color: #475569 !important;
+                border-bottom: 2px solid #cbd5e1 !important;
+            }
+            td {
+                border-bottom: 1px solid #e2e8f0 !important;
+            }
+            .evidence-img {
+                max-height: 400px;
+                page-break-inside: avoid;
+            }
+        }
     </style>
 </head>
 <body>
     <div class="container">
+        <div class="classification-header">
+            CONFIDENTIAL // ISRO PS 26167 REMOTE SENSING INTELLIGENCE DOSSIER // FOR OFFICIAL USE ONLY
+        </div>
+        <div class="no-print" style="margin-bottom: 15px; display: flex; justify-content: flex-end; gap: 10px;">
+            <button onclick="window.print()" class="print-btn">
+                🖨️ Print / Save PDF Mission Dossier
+            </button>
+        </div>
         <div class="header">
             <div>
                 <h1 class="title">SatQuery AI - Analysis Report</h1>

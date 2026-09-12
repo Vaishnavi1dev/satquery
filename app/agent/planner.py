@@ -60,11 +60,17 @@ class ExecutionPlanner:
         primary_tool = self.registry.get_tool(primary_tool_name)
         clean_params = primary_tool.validate_and_filter_params(user_parameters)
 
+        primary_image = images[0] if images else None
+        if len(images) > 1 and task in ("vqa", "caption", "grounding"):
+            opt_imgs = [img for img in images if img.modality in ("optical", "multispectral")]
+            if opt_imgs:
+                primary_image = opt_imgs[0]
+
         step_inputs = {
             "query": query,
             "images": images,
-            "modality": images[0].modality if images else "optical",
-            "envelope": images[0] if images else None
+            "modality": primary_image.modality if primary_image else "optical",
+            "envelope": primary_image
         }
 
         # --- QUERY DECOMPOSITION LOGIC ---

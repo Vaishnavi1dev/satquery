@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Bot, FileText, Check, Copy, ExternalLink, AlertTriangle, GitBranch, ArrowRight, ShieldAlert } from 'lucide-react';
+import { Bot, FileText, Check, Copy, ExternalLink, AlertTriangle, GitBranch, ArrowRight, ShieldAlert, Printer } from 'lucide-react';
 import { api } from '../../api/client';
 
 export default function AnswerCard({ result }) {
@@ -114,24 +114,40 @@ export default function AnswerCard({ result }) {
           )}
         </div>
 
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
+        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
           <button className="btn btn-ghost btn-sm" onClick={handleCopy}>
             {copied ? <Check size={14} color="var(--success)" /> : <Copy size={14} />}
             <span>{copied ? 'Copied' : 'Copy'}</span>
           </button>
 
           {reportUrl && (
-            <a
-              href={reportUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn btn-ghost btn-sm"
-              style={{ color: 'var(--cyan-400)', borderColor: 'rgba(6, 182, 212, 0.3)' }}
-            >
-              <FileText size={14} />
-              <span>Full HTML Report</span>
-              <ExternalLink size={12} />
-            </a>
+            <>
+              <a
+                href={reportUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn btn-ghost btn-sm"
+                style={{ color: 'var(--cyan-400)', borderColor: 'rgba(6, 182, 212, 0.3)' }}
+                title="Open comprehensive audit report in new tab"
+              >
+                <FileText size={14} />
+                <span>HTML Report</span>
+                <ExternalLink size={12} />
+              </a>
+
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => {
+                  const win = window.open(reportUrl, '_blank');
+                  if (win) win.focus();
+                }}
+                style={{ color: '#10b981', borderColor: 'rgba(16, 185, 129, 0.35)' }}
+                title="Print or export defense/disaster mission dossier as PDF"
+              >
+                <Printer size={14} />
+                <span>PDF Dossier</span>
+              </button>
+            </>
           )}
         </div>
       </div>

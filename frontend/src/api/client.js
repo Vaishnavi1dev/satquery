@@ -106,4 +106,16 @@ export const api = {
   getTraceUrl(traceId, sessionId) {
     return `${BASE_URL}/api/trace/${encodeURIComponent(traceId)}?session_id=${encodeURIComponent(sessionId)}`;
   },
+
+  async getSpectralIndices(sessionId, imageId) {
+    const res = await fetch(`${BASE_URL}/api/spectral-indices`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        session_id: sessionId,
+        image_id: imageId,
+      }),
+    });
+    return handleResponse(res);
+  },
 };

@@ -141,3 +141,33 @@ def test_multispectral_burn_scar_execution(tmp_path):
     assert res.geojson_url is not None
     assert res.geo_boxes is not None
 
+
+def test_autonomous_modality_detection():
+    """Verifies that ImageIngestionService autonomously detects Optical, Multispectral, and SAR modalities without user selection."""
+    from app.data.ingestion import ImageIngestionService
+
+    svc = ImageIngestionService()
+
+    # 1. 12-band Sentinel-2 datacube -> multispectral
+    mod_msi = svc.detect_modality("datacube.tif", (256, 256, 12), {})
+    assert mod_msi == "multispectral"
+
+    # 2. 3-band natural color RGB image -> optical
+    color_rgb = np.zeros((100, 100, 3), dtype=np.uint8)
+    color_rgb[:, :, 0] = 40   # R
+    color_rgb[:, :, 1] = 180  # G (high green vegetation)
+    color_rgb[:, :, 2] = 70   # B
+    mod_opt = svc.detect_modality("scene.png", color_rgb.shape, {}, data=color_rgb)
+    assert mod_opt == "optical"
+
+    # 3. 3-band grayscale speckled image (SAR radar product encoded as RGB) -> sar
+    np.random.seed(42)
+    speckle_ch = np.random.exponential(scale=50.0, size=(100, 100)).astype(np.uint8)
+    sar_rgb = np.stack([speckle_ch, speckle_ch, speckle_ch], axis=-1)
+    mod_sar = svc.detect_modality("observation.png", sar_rgb.shape, {}, data=sar_rgb)
+    assert mod_sar == "sar"
+
+    # 4. Explicit SAR markers in filename
+    mod_fn_sar = svc.detect_modality("sentinel1_vv_cband.tif", (100, 100, 1), {})
+    assert mod_fn_sar == "sar"
+

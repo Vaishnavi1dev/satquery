@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
-import { Eye, Layers, Box, CheckCircle2, Image as ImageIcon, Sparkles, Clock, TrendingUp, ArrowRight, Download, MapPin } from 'lucide-react';
+import { Eye, Layers, Box, CheckCircle2, Image as ImageIcon, Sparkles, Clock, TrendingUp, ArrowRight, Download, MapPin, Activity, Map } from 'lucide-react';
 import BeforeAfterSlider from './BeforeAfterSlider.jsx';
+import SpectralIndexViewer from './SpectralIndexViewer.jsx';
+import InteractiveMapViewer from './InteractiveMapViewer.jsx';
 
-export default function EvidenceViewer({ result, slotImages }) {
-  const [activeTab, setActiveTab] = useState('evidence'); // 'evidence', 'slider', or slotId
+export default function EvidenceViewer({ result, slotImages, sessionId }) {
+  const [activeTab, setActiveTab] = useState('evidence'); // 'evidence', 'slider', 'spectral', 'map', or slotId
   const [selectedEvidenceIndex, setSelectedEvidenceIndex] = useState(null);
   const [activeTransitionIndex, setActiveTransitionIndex] = useState(0);
 
@@ -15,6 +17,13 @@ export default function EvidenceViewer({ result, slotImages }) {
   const temporalEvents = result.temporal_events || [];
 
   const availableSlots = Object.entries(slotImages || {}).filter(([_, env]) => !!env);
+
+  // Find candidate image for spectral index calculation (prefer multispectral, then optical)
+  const spectralSlot = availableSlots.find(([_, env]) => env.modality === 'multispectral')
+    || availableSlots.find(([_, env]) => env.modality === 'optical')
+    || availableSlots[0];
+  const spectralCandidateImageId = spectralSlot ? (spectralSlot[1].image_id || spectralSlot[0]) : null;
+  const spectralCandidateThumb = spectralSlot ? spectralSlot[1].thumbnail_base64 : null;
 
   // Active highlighted box calculation
   let activeHighlightBox = null;
@@ -85,6 +94,36 @@ export default function EvidenceViewer({ result, slotImages }) {
             </button>
           )}
 
+          {/* Spectral Index Calculation Tab (NDVI / NDWI) */}
+          {spectralCandidateImageId && (
+            <button
+              className={`btn btn-sm ${activeTab === 'spectral' ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => {
+                setActiveTab('spectral');
+                setSelectedEvidenceIndex(null);
+              }}
+              style={{ color: activeTab === 'spectral' ? undefined : '#10b981', border: '1px solid rgba(16, 185, 129, 0.35)' }}
+              title="Compute real-time NDVI & NDWI vegetation and water indices"
+            >
+              <Activity size={13} />
+              <span>Spectral (NDVI/NDWI)</span>
+            </button>
+          )}
+
+          {/* Interactive GIS Satellite Map Tab */}
+          <button
+            className={`btn btn-sm ${activeTab === 'map' ? 'btn-primary' : 'btn-ghost'}`}
+            onClick={() => {
+              setActiveTab('map');
+              setSelectedEvidenceIndex(null);
+            }}
+            style={{ color: activeTab === 'map' ? undefined : '#06b6d4', border: '1px solid rgba(6, 182, 212, 0.35)' }}
+            title="Interactive Esri World Imagery & OpenStreetMap GIS Basemap with WGS84 GeoJSON"
+          >
+            <Map size={13} />
+            <span>GIS Map View</span>
+          </button>
+
           {availableSlots.map(([slotId, env], i) => (
             <button
               key={slotId}
@@ -134,6 +173,22 @@ export default function EvidenceViewer({ result, slotImages }) {
               label2={`T2: ${availableSlots[1][1].filename} (${availableSlots[1][1].modality})`}
             />
           </div>
+        ) : activeTab === 'spectral' ? (
+          <div style={{ width: '100%' }}>
+            <SpectralIndexViewer
+              sessionId={sessionId}
+              activeImageId={spectralCandidateImageId}
+              originalThumbnail={spectralCandidateThumb}
+            />
+          </div>
+        ) : activeTab === 'map' ? (
+          <div style={{ width: '100%' }}>
+            <InteractiveMapViewer
+              result={result}
+              slotImages={slotImages}
+              sessionId={sessionId}
+            />
+          </div>
         ) : activeTab === 'evidence' && evidenceUrl ? (
           <img src={evidenceUrl} alt="Visual Evidence Overlay" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
         ) : activeTab !== 'evidence' && slotImages?.[activeTab]?.thumbnail_base64 ? (
@@ -143,7 +198,6 @@ export default function EvidenceViewer({ result, slotImages }) {
             style={{ width: '100%', height: '100%', objectFit: 'contain' }}
           />
         ) : availableSlots.length > 0 && availableSlots[0][1]?.thumbnail_base64 ? (
-
           <img
             src={availableSlots[0][1].thumbnail_base64}
             alt={availableSlots[0][1].filename}

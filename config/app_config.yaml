@@ -5,14 +5,16 @@ system:
   log_level: "INFO"
 
 runtime:
-  mode: "simulation"  # "simulation" (high-fidelity local engine) or "real" (loads HF checkpoints)
+  mode: "real"        # Loads local adapted checkpoints when dependencies and base weights are available
   device: "auto"      # "auto", "cuda", "cpu"
   vram_budget_gb: 16.0
-  quantization: "int8" # "int8", "int4", "bf16", "fp32"
+  quantization: "int4" # "int8", "int4", "bf16", "fp32"
   fallback_to_cpu: true
   deterministic: true
   random_seed: 42
   timeout_seconds: 60
+  allow_model_downloads: false
+  base_model_path: "models/InternVL2-4B"
 
 storage:
   root_dir: "sessions"
@@ -23,8 +25,9 @@ storage:
 model_store:
   weights_dir: "models"
   earthdial_model_path: "models/earthdial"
-  dofa_model_path: "models/dofa"
-  earthdial_bigearthnet_model_path: "models/earthdial_bigearthnet"
+  dofa_model_path: "models/dofa_hf"
+  earthdial_bigearthnet_model_path: "models/earthdial_bigearthnet_hf"
+  earthdial_base_model_path: "models/InternVL2-4B"
 
 reports:
   output_format: "html"

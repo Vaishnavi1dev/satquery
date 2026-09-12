@@ -1,3 +1,4 @@
+import os
 from typing import Dict, Any, Optional
 from app.tools.base import ToolBase, ToolOutput
 
@@ -14,6 +15,16 @@ class SingleImageCaptionTool(ToolBase):
 
         modality = inputs.get("modality", "optical")
         envelope = inputs.get("envelope")
+        real_result = None
+        if envelope and getattr(envelope, "filepath", None):
+            try:
+                real_result = self.runtime_mgr.run_earthdial(
+                    "Describe the remote-sensing scene, land cover, and major visible objects.",
+                    [envelope.filepath],
+                    clean_params,
+                )
+            except Exception as exc:
+                self.runtime_mgr.load_errors[self.model_key] = f"Inference: {type(exc).__name__}: {exc}"
 
         if modality == "sar":
             text = (
@@ -39,6 +50,12 @@ class SingleImageCaptionTool(ToolBase):
             )
             conf = 0.95
 
+        checkpoint_dir = self.runtime_mgr.get_checkpoint_dir("earthdial-4b")
+        has_trained_weights = checkpoint_dir is not None
+        if real_result and real_result.get("text"):
+            text = real_result["text"]
+            conf = 0.90
+
         return ToolOutput(
             tool_name=self.name,
             model_name=self.model_name,
@@ -49,5 +66,12 @@ class SingleImageCaptionTool(ToolBase):
             evidence_ptr=envelope.image_id if envelope else None,
             evidence=[],  # Requirement 2: Captioning produces no explicit localization; mark unavailable instead of fabricating
             parameters_used=clean_params,
-            metadata={"modality": modality, "slot": "S2", "evidence_status": "unavailable"}
+            metadata={
+                "modality": modality,
+                "slot": "S2",
+                "evidence_status": "unavailable",
+                "fine_tuned_weights_present": has_trained_weights,
+                "inference_backend": "checkpoint" if real_result else "simulation",
+                "checkpoint_dir": real_result.get("checkpoint_dir") if real_result else str(checkpoint_dir) if checkpoint_dir else None,
+            }
         )

@@ -38,35 +38,53 @@ class ImageIngestionService:
     def compute_sha256(self, file_bytes: bytes) -> str:
         return hashlib.sha256(file_bytes).hexdigest()
 
-    def detect_modality(self, filename: str, shape: tuple, tags: Dict[str, Any]) -> str:
+    def detect_modality(self, filename: str, shape: tuple, tags: Dict[str, Any], data: Optional[np.ndarray] = None) -> str:
         fn_lower = filename.lower()
         bands = shape[2] if len(shape) == 3 else 1
 
-        # Check explicit filename markers for SAR
-        if any(marker in fn_lower for marker in ["sar", "s1", "sentinel-1", "sentinel1", "risat", "vv", "vh", "hh", "hv"]):
+        # 1. Check explicit filename markers for SAR / Radar
+        if any(marker in fn_lower for marker in ["sar", "s1", "sentinel-1", "sentinel1", "risat", "vv", "vh", "hh", "hv", "c-band", "cband", "radar"]):
             return "sar"
 
-        # Check tag metadata for SAR polarization
+        # 2. Check tag metadata for SAR polarization or radar attributes
         tag_str = str(tags).lower()
-        if any(p in tag_str for p in ["polarisation", "c-band", "backscatter", "sigma0", "gamma0"]):
+        if any(p in tag_str for p in ["polarisation", "polarization", "c-band", "backscatter", "sigma0", "gamma0", "sar", "sentinel-1"]):
             return "sar"
 
-        # Check explicit filename markers for Multispectral
-        if any(marker in fn_lower for marker in ["multispectral", "msi", "sentinel-2", "sentinel2", "ben-ge", "landsat", "b04_b08", "b08", "ndvi"]):
+        # 3. Check explicit filename markers for Multispectral
+        if any(marker in fn_lower for marker in ["multispectral", "msi", "sentinel-2", "sentinel2", "ben-ge", "landsat", "b04_b08", "b08", "ndvi", "10band", "12band", "13band"]):
             return "multispectral"
 
-        # Check band counts
-        if bands in (1, 2) and any(kw in fn_lower for kw in ["radar", "amplitude", "intensity"]):
-            return "sar"
-        elif bands > 3:
+        # 4. Check band counts
+        if bands > 3:
             return "multispectral"
-        elif bands == 3:
-            return "optical"
+        elif bands == 2:
+            # Dual-polarization radar (e.g. VV + VH)
+            return "sar"
         elif bands == 1:
             # Single band optical panchromatic or SAR
-            if "pan" in fn_lower or "cartosat" in fn_lower:
+            if "pan" in fn_lower or "cartosat" in fn_lower or "opt" in fn_lower:
                 return "optical"
             return "sar"
+
+        # 5. Autonomous Pixel-Data Inspection (for 3-band / RGB encoded imagery)
+        if data is not None and bands == 3:
+            # Check if all 3 color channels are identical (grayscale encoded as RGB, standard in SAR radar products)
+            ch_diff_rg = np.mean(np.abs(data[:, :, 0].astype(np.float32) - data[:, :, 1].astype(np.float32)))
+            ch_diff_gb = np.mean(np.abs(data[:, :, 1].astype(np.float32) - data[:, :, 2].astype(np.float32)))
+            is_monochrome = (ch_diff_rg < 3.0 and ch_diff_gb < 3.0)
+
+            if is_monochrome:
+                # In remote sensing, monochrome images are either panchromatic optical or SAR radar backscatter.
+                # SAR radar exhibits characteristic speckle noise (Rayleigh/Gamma distribution with high local variance)
+                mean_val = float(np.mean(data))
+                std_val = float(np.std(data))
+                cv = std_val / (mean_val + 1e-6)
+                if cv > 0.35:
+                    return "sar"
+            else:
+                # Significant color variance across RGB -> Natural/false-color optical
+                return "optical"
 
         return "optical"
 
@@ -151,7 +169,7 @@ class ImageIngestionService:
         bands = data.shape[2] if data.ndim == 3 else 1
         dtype_str = str(data.dtype)
 
-        modality = forced_modality or self.detect_modality(filename, data.shape, tags)
+        modality = forced_modality or self.detect_modality(filename, data.shape, tags, data=data)
         thumbnail = self.create_thumbnail_base64(data)
 
         image_id = f"img_{sha256_hash[:12]}"

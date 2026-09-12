@@ -13,6 +13,9 @@ models:
   dofa-vit-b:
     name: "DOFA-ViT-B"
     hf_repo: "earthflow/DOFA"
+    fusion_head_hf_repo: "VMamidala/satquery-model-b-dofa-fusion"
+    local_weights_path: "models/dofa/fusion_head.pt"
+    manifest_path: "models/dofa/adapter_manifest.json"
     architecture: "vit_base_patch16_224"
     embed_dim: 768
     patch_size: 16
@@ -23,6 +26,9 @@ models:
     name: "EarthDial-4B (BigEarthNet-MM Multi-Modal)"
     hf_repo: "akshaydudhane/EarthDial_4B_RGB"
     fallback_repo: "OpenGVLab/InternVL2-4B"
+    adapter_hf_repo: "VMamidala/satquery-model-a-earthdial-bigearthnet"
+    local_weights_path: "models/earthdial_bigearthnet/adapter_model.safetensors"
+    manifest_path: "models/earthdial_bigearthnet/adapter_manifest.json"
     llm_backbone: "microsoft/Phi-3-mini-4k-instruct"
     vision_backbone: "InternViT-300M"
     input_size: 512

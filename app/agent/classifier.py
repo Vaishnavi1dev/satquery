@@ -39,18 +39,46 @@ class TaskClassifier:
             is_change_query = any(k in q_lower for k in [
                 "between these two", "what changed", "change between", "has construction increased",
                 "has the built-up area increased", "increased, decreased, or remained", "increased between",
-                "dates", "t1", "t2", "over time", "temporal"
+                "dates", "t1", "t2", "over time", "temporal", "difference between"
             ])
-            if is_change_query:
+            is_cross_modal_pair = (is_opt1 and is_sar2) or (is_sar1 and is_opt2)
+            sar_fusion_triggers = [
+                "sar", "radar", "backscatter", "microwave", "cloud penetration", "through cloud",
+                "penetrate", "dielectric", "polarization", "polarisation", "vv", "vh", "all-weather",
+                "cross-modal", "fusion", "both optical and sar", "radar reflectance", "moisture",
+                "surface roughness", "double-bounce", "correlate"
+            ]
+            # A temporal question that asks for SAR confirmation is a composite
+            # change workflow. The planner then schedules both specialist tools.
+            if is_change_query and is_cross_modal_pair and any(k in q_lower for k in sar_fusion_triggers):
+                return "change_vqa", 0.97
+            if is_change_query and not is_cross_modal_pair:
                 return "change_vqa", 0.96
 
-            # Check for cross-modal optical-SAR pair
-            if (is_opt1 and is_sar2) or (is_sar1 and is_opt2):
-                return "opt_sar_fusion", 0.98
+            # When an optical + SAR pair is present:
+            if is_cross_modal_pair:
+                # Check if the query specifically requests SAR / radar / cross-modal fusion
+                if any(k in q_lower for k in sar_fusion_triggers):
+                    # Query explicitly requires cross-modal radar fusion (Mode B - DOFA-ViT-B)
+                    return "opt_sar_fusion", 0.98
+                else:
+                    # Query is about visual features, land-cover, buildings, objects, grounding, etc.
+                    # The Agent autonomously routes to Single Optical Scene Mode (Mode A - EarthDial-4B)!
+                    grounding_triggers = [
+                        "highlight", "locate", "box", "draw", "bounding", "where is", "where are",
+                        "detect the region", "segment", "pinpoint", "mark"
+                    ]
+                    if any(trigger in q_lower for trigger in grounding_triggers):
+                        return "grounding", 0.94
 
-            # Check explicit optical-SAR keywords in query
-            if any(k in q_lower for k in ["optical and sar", "sar and optical", "radar and optical", "together"]):
-                return "opt_sar_fusion", 0.95
+                    caption_triggers = [
+                        "describe the land-cover", "describe", "caption", "scene description",
+                        "summarize the scene", "give an overview", "detailed summary", "what does this scene show"
+                    ]
+                    if any(trigger in q_lower for trigger in caption_triggers):
+                        return "caption", 0.93
+
+                    return "vqa", 0.95
 
             # Otherwise, 2 images of same modality are treated as bi-temporal change analysis
             return "change_vqa", 0.96

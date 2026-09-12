@@ -103,7 +103,7 @@ export default function UploadZone({
 
                 <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', margin: '2px 0' }}>
                   <span className={`tag-pill ${env.modality === 'sar' ? 'modality-sar' : env.modality === 'multispectral' ? 'modality-msi' : 'modality-opt'}`}>
-                    {env.modality === 'multispectral' ? 'MULTISPECTRAL (MSI)' : (env.modality?.toUpperCase() || 'OPTICAL')}
+                    ⚡ Auto: {env.modality === 'multispectral' ? 'Multispectral (MSI)' : env.modality === 'sar' ? 'SAR Radar' : 'Optical (RGB)'}
                   </span>
                   <span className="tag-pill mono">
                     {env.width}×{env.height}

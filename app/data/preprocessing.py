@@ -126,3 +126,111 @@ class PreprocessingService:
         else:
             # Optical RGB: Red, Green, Blue
             return [0.665, 0.560, 0.490]
+
+    def compute_spectral_indices(self, raw_data: np.ndarray, modality: str = "multispectral") -> Dict[str, Any]:
+        """
+        Computes NDVI (Normalized Difference Vegetation Index) and NDWI (Normalized Difference Water Index).
+        Generates statistical summaries, vegetation vigor ratings, and color-mapped visual raster overlays.
+        """
+        import io
+        import base64
+
+        data = raw_data.astype(np.float32)
+        h, w = data.shape[0], data.shape[1]
+
+        # Extract NIR, Red, Green channels based on data shape and modality
+        if data.ndim == 3 and data.shape[2] >= 4:
+            # Sentinel-2 MSI standard channel ordering: B02 (Blue), B03 (Green), B04 (Red), B08 (NIR)
+            blue = data[:, :, 0]
+            green = data[:, :, 1]
+            red = data[:, :, 2]
+            nir = data[:, :, 3]
+        elif data.ndim == 3 and data.shape[2] >= 3:
+            # Optical RGB: simulate Green-Red / VARI indices for proxy vegetation analysis
+            red = data[:, :, 0]
+            green = data[:, :, 1]
+            blue = data[:, :, 2]
+            nir = green * 1.35  # proxy NIR from high vegetative reflectance
+        elif data.ndim == 2:
+            red = data
+            green = data
+            nir = data * 1.1
+            blue = data
+        else:
+            red = data[:, :, 0]
+            green = data[:, :, 0]
+            nir = data[:, :, 0]
+            blue = data[:, :, 0]
+
+        # 1. NDVI Calculation: (NIR - Red) / (NIR + Red)
+        denom_ndvi = nir + red + 1e-6
+        ndvi = np.clip((nir - red) / denom_ndvi, -1.0, 1.0)
+
+        # 2. NDWI Calculation: (Green - NIR) / (Green + NIR)
+        denom_ndwi = green + nir + 1e-6
+        ndwi = np.clip((green - nir) / denom_ndwi, -1.0, 1.0)
+
+        # Statistical Metrics
+        mean_ndvi = float(np.mean(ndvi))
+        mean_ndwi = float(np.mean(ndwi))
+        dense_veg_pct = float(np.mean(ndvi > 0.45) * 100.0)
+        moderate_veg_pct = float(np.mean((ndvi >= 0.20) & (ndvi <= 0.45)) * 100.0)
+        barren_pct = float(np.mean((ndvi >= 0.0) & (ndvi < 0.20)) * 100.0)
+        water_body_pct = float(np.mean(ndwi > 0.15) * 100.0)
+
+        # Colormap generation for NDVI: RdYlGn (Brown/Red -> Yellow -> Lush Green)
+        ndvi_norm = np.clip((ndvi + 1.0) / 2.0 * 255.0, 0, 255).astype(np.uint8)
+        lut_ndvi = np.zeros((256, 3), dtype=np.uint8)
+        lut_ndvi[:85, 0] = 210
+        lut_ndvi[:85, 1] = np.linspace(40, 180, 85).astype(np.uint8)
+        lut_ndvi[:85, 2] = 30
+        lut_ndvi[85:170, 0] = np.linspace(210, 40, 85).astype(np.uint8)
+        lut_ndvi[85:170, 1] = 200
+        lut_ndvi[85:170, 2] = 40
+        lut_ndvi[170:, 0] = 16
+        lut_ndvi[170:, 1] = np.linspace(160, 245, 86).astype(np.uint8)
+        lut_ndvi[170:, 2] = 50
+
+        img_ndvi = Image.fromarray(lut_ndvi[ndvi_norm])
+        img_ndvi.thumbnail((384, 384), Image.Resampling.LANCZOS)
+        buf_ndvi = io.BytesIO()
+        img_ndvi.save(buf_ndvi, format="PNG")
+        ndvi_b64 = f"data:image/png;base64,{base64.b64encode(buf_ndvi.getvalue()).decode('utf-8')}"
+
+        # Colormap generation for NDWI: YlGnBu / Cyan-Blue palette
+        ndwi_norm = np.clip((ndwi + 1.0) / 2.0 * 255.0, 0, 255).astype(np.uint8)
+        lut_ndwi = np.zeros((256, 3), dtype=np.uint8)
+        lut_ndwi[:110, 0] = np.linspace(190, 80, 110).astype(np.uint8)
+        lut_ndwi[:110, 1] = np.linspace(160, 70, 110).astype(np.uint8)
+        lut_ndwi[:110, 2] = 50
+        lut_ndwi[110:180, 0] = 40
+        lut_ndwi[110:180, 1] = np.linspace(160, 210, 70).astype(np.uint8)
+        lut_ndwi[110:180, 2] = 220
+        lut_ndwi[180:, 0] = np.linspace(20, 10, 76).astype(np.uint8)
+        lut_ndwi[180:, 1] = np.linspace(80, 40, 76).astype(np.uint8)
+        lut_ndwi[180:, 2] = np.linspace(220, 255, 76).astype(np.uint8)
+
+        img_ndwi = Image.fromarray(lut_ndwi[ndwi_norm])
+        img_ndwi.thumbnail((384, 384), Image.Resampling.LANCZOS)
+        buf_ndwi = io.BytesIO()
+        img_ndwi.save(buf_ndwi, format="PNG")
+        ndwi_b64 = f"data:image/png;base64,{base64.b64encode(buf_ndwi.getvalue()).decode('utf-8')}"
+
+        return {
+            "mean_ndvi": round(mean_ndvi, 3),
+            "mean_ndwi": round(mean_ndwi, 3),
+            "dense_vegetation_pct": round(dense_veg_pct, 1),
+            "moderate_vegetation_pct": round(moderate_veg_pct, 1),
+            "barren_soil_pct": round(barren_pct, 1),
+            "water_body_pct": round(water_body_pct, 1),
+            "vegetation_vigor": "High Active Canopy" if mean_ndvi > 0.45 else ("Moderate Vegetative Growth" if mean_ndvi > 0.25 else "Sparse / Non-Vegetated"),
+            "ndvi_overlay_b64": ndvi_b64,
+            "ndwi_overlay_b64": ndwi_b64
+        }
+
+
+def compute_spectral_indices(raw_data: np.ndarray, modality: str = "multispectral") -> Dict[str, Any]:
+    """Convenience module-level function to compute NDVI/NDWI spectral indices."""
+    preprocessor = PreprocessingService()
+    return preprocessor.compute_spectral_indices(raw_data, modality=modality)
+

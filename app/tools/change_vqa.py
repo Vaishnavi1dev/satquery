@@ -1,7 +1,8 @@
 from typing import Dict, Any, Optional
 from app.tools.base import ToolBase, ToolOutput
 from app.runtime.manager import ModelExecutionError
-from app.data.ingestion import pixel_box_to_geo
+from app.data.ingestion import pixel_box_to_geo, ImageIngestionService
+from pathlib import Path
 
 
 class BiTemporalChangeVQATool(ToolBase):
@@ -28,8 +29,24 @@ class BiTemporalChangeVQATool(ToolBase):
         t2_env = images[1]
         modality = t2_env.modality
 
+        real_result = None
+        if getattr(t1_env, "filepath", None) and getattr(t2_env, "filepath", None):
+            try:
+                real_result = self.runtime_mgr.run_earthdial(
+                    query,
+                    [t1_env.filepath, t2_env.filepath],
+                    clean_params,
+                )
+            except Exception as exc:
+                self.runtime_mgr.load_errors[self.model_key] = f"Inference: {type(exc).__name__}: {exc}"
+
         orig_w = max(t1_env.width, t2_env.width)
         orig_h = max(t1_env.height, t2_env.height)
+
+        # Use the actual pair as the evidence source whenever the files are readable.
+        # The specialist model may still provide semantic interpretation, but the
+        # reported change percentage and region are anchored to observed pixels.
+        measured_change = self._measure_change(t1_env, t2_env, orig_w, orig_h)
 
         # Modality-aware and query-aware change reasoning
         if modality == "sar":
@@ -108,7 +125,30 @@ class BiTemporalChangeVQATool(ToolBase):
                 change_ratio = 0.142
                 conf = 0.89
 
-        cycle_consistency = 0.95
+        if measured_change:
+            changed_pct = measured_change["changed_pct"]
+            boxes = [measured_change["box"]]
+            change_ratio = round(changed_pct / 100.0, 3)
+            focus = ""
+            if any(k in q_lower for k in ["fire", "burn", "scar", "wildfire"]):
+                focus = " Query focus: the measured difference is reported as a candidate burn-scar region."
+            elif any(k in q_lower for k in ["flood", "water", "inundation"]):
+                focus = " Query focus: the measured difference is reported as a candidate water/inundation region."
+            elif any(k in q_lower for k in ["built", "urban", "construction", "building"]):
+                focus = " Query focus: the measured difference is reported as a candidate built-up change region."
+            text = (
+                f"Pixel-aligned comparison between Observation T1 and T2 identifies "
+                f"{changed_pct:.1f}% of the aligned scene as materially different. "
+                f"The highest-change region is localized in the displayed evidence overlay.{focus}"
+            )
+            change_type = "measured_surface_difference"
+            conf = 0.88
+
+        cycle_consistency = round(max(0.0, 1.0 - (change_ratio * 0.2)), 3)
+
+        if real_result and real_result.get("text"):
+            text = real_result["text"]
+            conf = 0.90
 
         # Compute real-world geographic coordinates
         geo_boxes = [pixel_box_to_geo(b, t2_env) for b in boxes]
@@ -152,7 +192,42 @@ class BiTemporalChangeVQATool(ToolBase):
                 "change_detected": True,
                 "change_type": change_type,
                 "geo_boxes": geo_boxes,
-                "cycle_consistency": cycle_consistency
+                "cycle_consistency": cycle_consistency,
+                "inference_backend": "checkpoint" if real_result else ("pixel_analysis" if measured_change else "simulation"),
+                "checkpoint_dir": real_result.get("checkpoint_dir") if real_result else str(self.runtime_mgr.get_checkpoint_dir("earthdial-4b")) if self.runtime_mgr.get_checkpoint_dir("earthdial-4b") else None,
             }
         )
 
+    @staticmethod
+    def _measure_change(env_t1, env_t2, width: int, height: int) -> Optional[Dict[str, Any]]:
+        try:
+            service = ImageIngestionService()
+            data1, _ = service.read_image_data(Path(env_t1.filepath))
+            data2, _ = service.read_image_data(Path(env_t2.filepath))
+            from PIL import Image
+            import numpy as np
+
+            def as_rgb(data):
+                if data.ndim == 2:
+                    return np.repeat(data[:, :, None], 3, axis=2)
+                if data.shape[2] == 1:
+                    return np.repeat(data, 3, axis=2)
+                return data[:, :, :3]
+
+            img1 = Image.fromarray(as_rgb(data1).astype(np.uint8)).convert("RGB").resize((256, 256))
+            img2 = Image.fromarray(as_rgb(data2).astype(np.uint8)).convert("RGB").resize((256, 256))
+            arr1 = np.asarray(img1, dtype=np.float32)
+            arr2 = np.asarray(img2, dtype=np.float32)
+            diff = np.mean(np.abs(arr2 - arr1), axis=2)
+            threshold = max(18.0, float(np.percentile(diff, 85)))
+            active = diff >= threshold
+            if not np.any(active):
+                return None
+            ys, xs = np.where(active)
+            x1 = int(xs.min() / 256 * width)
+            y1 = int(ys.min() / 256 * height)
+            x2 = max(x1 + 1, int((xs.max() + 1) / 256 * width))
+            y2 = max(y1 + 1, int((ys.max() + 1) / 256 * height))
+            return {"changed_pct": float(np.mean(active) * 100), "box": [x1, y1, x2, y2]}
+        except Exception:
+            return None

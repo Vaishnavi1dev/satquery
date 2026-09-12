@@ -13,14 +13,16 @@ class SystemConfig(BaseModel):
 
 
 class RuntimeConfig(BaseModel):
-    mode: str = "simulation"  # "simulation" or "real"
+    mode: str = "real"  # "simulation" or "real"
     device: str = "auto"
     vram_budget_gb: float = 16.0
-    quantization: str = "int8"
+    quantization: str = "int4"
     fallback_to_cpu: bool = True
     deterministic: bool = True
     random_seed: int = 42
     timeout_seconds: int = 60
+    allow_model_downloads: bool = False
+    base_model_path: Optional[str] = "models/InternVL2-4B"
 
 
 class StorageConfig(BaseModel):
@@ -33,8 +35,9 @@ class StorageConfig(BaseModel):
 class ModelStoreConfig(BaseModel):
     weights_dir: str = "models"
     earthdial_model_path: str = "models/earthdial"
-    dofa_model_path: str = "models/dofa"
-    earthdial_bigearthnet_model_path: str = "models/earthdial_bigearthnet"
+    dofa_model_path: str = "models/dofa_hf"
+    earthdial_bigearthnet_model_path: str = "models/earthdial_bigearthnet_hf"
+    earthdial_base_model_path: Optional[str] = "models/InternVL2-4B"
 
 
 class ReportsConfig(BaseModel):

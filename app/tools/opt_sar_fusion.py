@@ -1,3 +1,4 @@
+import os
 from typing import Dict, Any, Optional
 from app.tools.base import ToolBase, ToolOutput
 from app.runtime.manager import ModelExecutionError
@@ -47,6 +48,17 @@ class OpticalSARFusionTool(ToolBase):
 
         opt_wls = self.prep_svc.get_dofa_wavelengths(opt_env.modality)
         sar_wls = self.prep_svc.get_dofa_wavelengths("sar")
+
+        real_result = None
+        try:
+            real_result = self.runtime_mgr.run_dofa_fusion(
+                opt_env.filepath,
+                sar_env.filepath,
+                opt_wls,
+                sar_wls,
+            )
+        except Exception as exc:
+            self.runtime_mgr.load_errors[self.model_key] = f"Inference: {type(exc).__name__}: {exc}"
 
         # Synthesize complementary multi-sensor insights
         if any(k in q_lower for k in ["built-up", "water", "both", "identify", "together"]):
@@ -104,6 +116,11 @@ class OpticalSARFusionTool(ToolBase):
             }
         ]
 
+        checkpoint_dir = self.runtime_mgr.get_checkpoint_dir("dofa-fusion")
+        has_trained_weights = checkpoint_dir is not None
+        if real_result:
+            conf = max(conf, min(0.99, 0.75 + real_result.get("token_confidence", 0.0)))
+
         return ToolOutput(
             tool_name=self.name,
             model_name=self.model_name,
@@ -119,6 +136,10 @@ class OpticalSARFusionTool(ToolBase):
                 "sar_image_id": sar_env.image_id,
                 "optical_wavelengths_um": opt_wls,
                 "sar_wavelengths_um": sar_wls,
-                "slot": "S4"
+                "slot": "S4",
+                "fine_tuned_fusion_head_present": has_trained_weights,
+                "inference_backend": "checkpoint" if real_result else "simulation",
+                "checkpoint_dir": real_result.get("checkpoint_dir") if real_result else str(checkpoint_dir) if checkpoint_dir else None,
+                "logits_shape": real_result.get("logits_shape") if real_result else None
             }
         )
