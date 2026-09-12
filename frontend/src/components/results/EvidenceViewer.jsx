@@ -161,7 +161,10 @@ export default function EvidenceViewer({ result, slotImages, sessionId }) {
       </div>
 
       {/* Interactive Image Display Viewport */}
-      <div className="evidence-viewport" style={{ position: 'relative' }}>
+      <div 
+        className={`evidence-viewport ${['spectral', 'map', 'slider'].includes(activeTab) ? 'evidence-viewport-interactive' : ''}`}
+        style={{ position: 'relative' }}
+      >
         {activeTab === 'slider' && availableSlots.length >= 2 ? (
           <div style={{ width: '100%' }}>
             <BeforeAfterSlider

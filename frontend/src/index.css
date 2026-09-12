@@ -1083,7 +1083,7 @@ h6 {
 .evidence-viewport {
   position: relative;
   width: 100%;
-  height: 380px;
+  min-height: 380px;
   background: #03060c;
   border-radius: 10px;
   overflow: hidden;
@@ -1091,6 +1091,16 @@ h6 {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.evidence-viewport.evidence-viewport-interactive {
+  height: auto;
+  min-height: auto;
+  max-height: none;
+  overflow: visible;
+  display: block;
+  background: transparent;
+  border: none;
 }
 
 .evidence-viewport img {
