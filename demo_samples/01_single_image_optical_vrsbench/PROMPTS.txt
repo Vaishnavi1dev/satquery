@@ -1,6 +1,23 @@
-Recommended Queries for Single-Image Optical (VRSBench / RSVQA Style):
--------------------------------------------------------------------------
-1. Describe the land-cover and major objects visible in this image.
-2. Highlight the water body referred to in the query.
-3. What type of land cover dominates this region, and are there buildings or transport networks?
-4. Is there an airport, residential settlement, or agricultural land present?
+Official Benchmark Queries for Single-Image Optical:
+-------------------------------------------------------
+
+[A] Official VRSBench Sample (Image: vrsbench_official_P0003_0002.png)
+1. VQA Query:
+   "What color are the large vehicles seen in the image?"
+   (Official Ground Truth: Yellow)
+
+2. Captioning Query:
+   "Describe the image in detail."
+   (Official Ground Truth: Aerial image features large yellow buses lined up on the left side...)
+
+3. Region Grounding Query:
+   "The large yellow vehicle situated closest to the green area."
+   (Official Ground Truth: Bounding box centered on the lead bus next to the green vegetation)
+
+[B] Official RSVQA Sample (Image: rsvqa_official_sample_0.png)
+1. RSVQA Query:
+   "Is it a rural or an urban area?"
+   (Official Ground Truth: rural)
+
+[C] GeoTIFF Ingestion Test (Image: water_bodies_multispectral.tif)
+1. "Highlight the water body referred to in the query and identify land cover."

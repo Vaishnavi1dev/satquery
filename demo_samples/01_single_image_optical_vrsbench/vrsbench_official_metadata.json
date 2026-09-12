@@ -1,0 +1,20 @@
+{
+  "source_dataset": "xiang709/VRSBench (Validation Split)",
+  "image_id": "P0003_0002.png",
+  "tasks": {
+    "vqa": {
+      "question": "What color are the large vehicles seen in the image?",
+      "ground_truth": "Yellow",
+      "type": "object color"
+    },
+    "caption": {
+      "question": "Describe the image in detail",
+      "ground_truth": "The aerial image from GoogleEarth features a group of large yellow buses lined up on the left side, and two small vehicles, one on the top-right and another large vehicle on the bottom-right side of the image. The buses are parked in a lot adjacent to a green area and a road running roughly north-south."
+    },
+    "referring_expression_grounding": {
+      "query": "The large yellow vehicle situated closest to the green area.",
+      "ground_truth_bbox_normalized": [0.256, 0.400, 0.334, 0.604],
+      "object_class": "vehicle"
+    }
+  }
+}
