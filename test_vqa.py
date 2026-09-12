@@ -44,4 +44,4 @@ for q in queries:
         res = json.loads(resp.read().decode('utf-8'))
         print(f"\n[QUERY]: {q}")
         print(f"[TASK]: {res['task']}")
-        print(f"[ANSWER]: {res['synthesis']['answer']}")
+        print(f"[ANSWER]: {res.get('answer')}")

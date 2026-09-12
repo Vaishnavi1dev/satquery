@@ -313,8 +313,20 @@ class ModelRuntimeManager:
             pass
 
     def get_runtime_status(self) -> Dict[str, Any]:
+        gpu_name = None
+        total_vram = None
+        try:
+            import torch
+            if torch.cuda.is_available():
+                gpu_name = torch.cuda.get_device_name(0)
+                total_vram = round(torch.cuda.get_device_properties(0).total_memory / (1024**3), 2)
+        except Exception:
+            pass
+
         return {
             "device": self.device,
+            "device_name": gpu_name,
+            "total_vram_gb": total_vram,
             "mode": self.mode,
             "vram_budget_gb": self.config.runtime.vram_budget_gb,
             "quantization": self.config.runtime.quantization,

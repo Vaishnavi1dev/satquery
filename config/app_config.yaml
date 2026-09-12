@@ -7,7 +7,7 @@ system:
 runtime:
   mode: "real"        # Loads local adapted checkpoints when dependencies and base weights are available
   device: "auto"      # "auto", "cuda", "cpu"
-  vram_budget_gb: 16.0
+  vram_budget_gb: 8.0
   quantization: "int4" # "int8", "int4", "bf16", "fp32"
   fallback_to_cpu: true
   deterministic: true
