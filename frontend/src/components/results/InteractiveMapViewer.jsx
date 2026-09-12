@@ -29,11 +29,12 @@ export default function InteractiveMapViewer({ result, slotImages, sessionId }) 
 
   // Determine initial center coordinates
   const getFallbackCoordinates = () => {
-    // Check if slotImages has geo_bbox or coordinates
+    // Check if slotImages has bounds or geo_bbox
     if (slotImages) {
       const firstSlot = Object.values(slotImages).find(env => !!env);
-      if (firstSlot?.geo_bbox && firstSlot.geo_bbox.length === 4) {
-        const [minLon, minLat, maxLon, maxLat] = firstSlot.geo_bbox;
+      const b = firstSlot?.bounds || firstSlot?.geo_bbox;
+      if (b && b.length === 4) {
+        const [minLon, minLat, maxLon, maxLat] = b;
         return [(minLat + maxLat) / 2, (minLon + maxLon) / 2];
       }
     }
@@ -72,9 +73,33 @@ export default function InteractiveMapViewer({ result, slotImages, sessionId }) 
           if (!isCancelled) setIsLoading(false);
         }
       } else {
-        // Construct fallback polygon from slotImages or default
+        // Construct fallback polygon from slotImages bounds or default
         const [centerLat, centerLon] = getFallbackCoordinates();
-        const delta = 0.015; // ~1.5 km bounding box
+        const firstSlot = slotImages ? Object.values(slotImages).find(env => !!env) : null;
+        const b = firstSlot?.bounds || firstSlot?.geo_bbox;
+        const hasRealBounds = b && b.length === 4;
+
+        let coords;
+        if (hasRealBounds) {
+          const [minLon, minLat, maxLon, maxLat] = b;
+          coords = [[
+            [minLon, minLat],
+            [maxLon, minLat],
+            [maxLon, maxLat],
+            [minLon, maxLat],
+            [minLon, minLat],
+          ]];
+        } else {
+          const delta = 0.015;
+          coords = [[
+            [centerLon - delta, centerLat - delta],
+            [centerLon + delta, centerLat - delta],
+            [centerLon + delta, centerLat + delta],
+            [centerLon - delta, centerLat + delta],
+            [centerLon - delta, centerLat - delta],
+          ]];
+        }
+
         const syntheticGeoJson = {
           type: 'FeatureCollection',
           features: [
@@ -87,13 +112,7 @@ export default function InteractiveMapViewer({ result, slotImages, sessionId }) 
               },
               geometry: {
                 type: 'Polygon',
-                coordinates: [[
-                  [centerLon - delta, centerLat - delta],
-                  [centerLon + delta, centerLat - delta],
-                  [centerLon + delta, centerLat + delta],
-                  [centerLon - delta, centerLat + delta],
-                  [centerLon - delta, centerLat - delta],
-                ]],
+                coordinates: coords,
               },
             },
           ],

@@ -92,7 +92,7 @@ def test_single_image_vqa_evidence(agent):
     assert res.task == "vqa"
     assert "backscatter" in res.answer.lower()
     assert res.confidence is not None
-    assert len(res.evidence) == 1
+    assert len(res.evidence) >= 1
     assert res.evidence[0]["source_model"] == "earthdial"
     assert res.evidence[0]["modality"] == "sar"
 

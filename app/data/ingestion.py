@@ -1,6 +1,8 @@
 import base64
 import hashlib
 import io
+import math
+import re
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 import numpy as np
@@ -24,6 +26,7 @@ class ImageMetadataEnvelope(BaseModel):
     crs: Optional[str] = None
     resolution_m: Optional[float] = None
     bounds: Optional[List[float]] = None  # [minx, miny, maxx, maxy]
+    geo_bbox: Optional[List[float]] = None  # [min_lon, min_lat, max_lon, max_lat]
     nodata_val: Optional[float] = None
     thumbnail_base64: Optional[str] = None
     tags: Dict[str, Any] = Field(default_factory=dict)
@@ -42,18 +45,19 @@ class ImageIngestionService:
         fn_lower = filename.lower()
         bands = shape[2] if len(shape) == 3 else 1
 
-        # 1. Check explicit filename markers for SAR / Radar
-        if any(marker in fn_lower for marker in ["sar", "s1", "sentinel-1", "sentinel1", "risat", "vv", "vh", "hh", "hv", "c-band", "cband", "radar"]):
+        # 1. Check explicit filename markers for Optical / Multispectral first
+        if any(marker in fn_lower for marker in ["multispectral", "msi", "sentinel-2", "sentinel2", "ben-ge", "landsat", "b04_b08", "b08", "ndvi", "ndwi", "water", "urban", "optical", "rgb"]):
+            return "multispectral" if bands > 3 or "multi" in fn_lower else "optical"
+
+        # 2. Check explicit filename markers for SAR / Radar
+        sar_tokens = ["sentinel-1", "sentinel1", "risat", "_sar", "sar_", "-sar", "c-band", "cband", "radar"]
+        if any(marker in fn_lower for marker in sar_tokens) or fn_lower.startswith("sar") or re.search(r"\bsar\b", fn_lower):
             return "sar"
 
-        # 2. Check tag metadata for SAR polarization or radar attributes
+        # 3. Check tag metadata for SAR polarization (do NOT match substring 'sar' inside 'isarea'!)
         tag_str = str(tags).lower()
-        if any(p in tag_str for p in ["polarisation", "polarization", "c-band", "backscatter", "sigma0", "gamma0", "sar", "sentinel-1"]):
+        if any(p in tag_str for p in ["polarisation", "polarization", "c-band", "backscatter", "sigma0", "gamma0", "sentinel-1"]) or re.search(r"\bsar\b", tag_str):
             return "sar"
-
-        # 3. Check explicit filename markers for Multispectral
-        if any(marker in fn_lower for marker in ["multispectral", "msi", "sentinel-2", "sentinel2", "ben-ge", "landsat", "b04_b08", "b08", "ndvi", "10band", "12band", "13band"]):
-            return "multispectral"
 
         # 4. Check band counts
         if bands > 3:
@@ -76,7 +80,6 @@ class ImageIngestionService:
 
             if is_monochrome:
                 # In remote sensing, monochrome images are either panchromatic optical or SAR radar backscatter.
-                # SAR radar exhibits characteristic speckle noise (Rayleigh/Gamma distribution with high local variance)
                 mean_val = float(np.mean(data))
                 std_val = float(np.std(data))
                 cv = std_val / (mean_val + 1e-6)
@@ -84,7 +87,7 @@ class ImageIngestionService:
                     return "sar"
             else:
                 # Significant color variance across RGB -> Natural/false-color optical
-                return "optical"
+                return "multispectral" if "multi" in fn_lower else "optical"
 
         return "optical"
 
@@ -98,6 +101,29 @@ class ImageIngestionService:
                     data = tif.asarray()
                     if tif.geotiff_metadata:
                         tags["geotiff"] = tif.geotiff_metadata
+                        meta = tif.geotiff_metadata
+                        scale = meta.get("ModelPixelScale")
+                        tie = meta.get("ModelTiepoint")
+                        if tie and scale and len(tie) >= 5 and len(scale) >= 2:
+                            x0, y0 = float(tie[3]), float(tie[4])
+                            sx, sy = float(scale[0]), float(scale[1])
+                            h_tif, w_tif = data.shape[:2]
+                            x1 = x0 + w_tif * sx
+                            y1 = y0 - h_tif * sy
+
+                            proj_cs = meta.get("ProjectedCSTypeGeoKey")
+                            if proj_cs == 3857 or "pseudo-mercator" in str(meta).lower():
+                                def _m2w(mx: float, my: float):
+                                    lon = (mx / 20037508.342789244) * 180.0
+                                    lat = 180.0 / math.pi * (2.0 * math.atan(math.exp((my / 20037508.342789244) * math.pi)) - math.pi / 2.0)
+                                    return round(lon, 6), round(lat, 6)
+                                min_lon, min_lat = _m2w(x0, y1)
+                                max_lon, max_lat = _m2w(x1, y0)
+                                tags["bounds"] = [min_lon, min_lat, max_lon, max_lat]
+                                tags["crs"] = "EPSG:4326"
+                            elif proj_cs == 4326 or "wgs 84" in str(meta).lower():
+                                tags["bounds"] = [round(x0, 6), round(y1, 6), round(x1, 6), round(y0, 6)]
+                                tags["crs"] = "EPSG:4326"
             except Exception as e:
                 # Fallback to PIL
                 pil_img = Image.open(file_path)
@@ -192,6 +218,7 @@ class ImageIngestionService:
             crs=tags.get("crs") or "EPSG:4326",
             resolution_m=tags.get("resolution") or (10.0 if modality in ("multispectral", "sar") else 0.65),
             bounds=default_bounds,
+            geo_bbox=default_bounds,
             nodata_val=None,
             thumbnail_base64=thumbnail,
             tags=tags
