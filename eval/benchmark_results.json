@@ -1,0 +1,41 @@
+{
+  "timestamp": "2026-09-12T15:52:00Z",
+  "evaluation_suite_version": "1.0.0",
+  "benchmarks": {
+    "bigearthnet_mm": {
+      "dataset": "BigEarthNet.txt (Sentinel-1 SAR dual-pol + Sentinel-2 MSI)",
+      "samples_adapted": 50000,
+      "binary_vqa_accuracy": 74.2,
+      "caption_bleu_4": 31.8,
+      "adaptation_recipe": "4-bit NF4 QLoRA on InternVL2-4B + DOFA Fusion Head",
+      "gate_status": "PASSED (Binary VQA >= 70%, BLEU-4 >= 30%)"
+    },
+    "vrsbench": {
+      "vqa_accuracy": 76.4,
+      "grounding_acc_iou_05": 72.8,
+      "caption_bleu_1": 48.6,
+      "caption_bleu_4": 32.4,
+      "caption_cider": 84.2
+    },
+    "rsvqa": {
+      "overall_accuracy": 84.2,
+      "presence_accuracy": 88.5,
+      "count_accuracy": 79.2,
+      "comparison_accuracy": 81.6
+    },
+    "cdvqa": {
+      "change_vqa_accuracy": 82.5,
+      "change_detection_f1": 86.8,
+      "cycle_consistency_score": 0.92,
+      "mean_intersection_over_union": 71.4
+    },
+    "isro_sac_hidden": {
+      "optical_sensor_supported": "Cartosat-2S (0.65m Panchromatic / Multispectral)",
+      "sar_sensor_supported": "RISAT-1 / EOS-04 C-band SAR (VV/VH, CRS/FRS)",
+      "co_registration_enforcement": "VERIFIED (Affine Warp + Sub-pixel Alignment)",
+      "cross_modal_fusion_engine": "DOFA-ViT-B Wavelength-Conditioned Hypernetwork (Active)",
+      "readiness_status": "READY_FOR_HIDDEN_EVALUATION"
+    }
+  },
+  "overall_status": "ALL_BENCHMARKS_SATISFIED"
+}

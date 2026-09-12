@@ -36,6 +36,11 @@ export const api = {
     return handleResponse(res);
   },
 
+  async getBenchmarks() {
+    const res = await fetch(`${BASE_URL}/api/benchmarks`);
+    return handleResponse(res);
+  },
+
   async createSession() {
     const res = await fetch(`${BASE_URL}/api/sessions`, {
       method: 'POST',

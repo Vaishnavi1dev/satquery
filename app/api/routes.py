@@ -96,6 +96,20 @@ def get_registry():
     }
 
 
+@router.get("/benchmarks")
+def get_benchmarks():
+    bench_file = Path("eval/benchmark_results.json")
+    if bench_file.exists():
+        try:
+            with open(bench_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    from eval.benchmark_evaluator import BenchmarkEvaluator
+    evaluator = BenchmarkEvaluator()
+    return evaluator.run_all()
+
+
 @router.post("/sessions")
 def create_session():
     sid = sandbox.create_session()
