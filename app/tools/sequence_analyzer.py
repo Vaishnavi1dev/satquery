@@ -307,6 +307,12 @@ class MultiTemporalSequenceTool(ToolBase):
                 "cycle_consistency": None,
                 "inference_backend": "checkpoint" if any_model_text else "rule_based",
                 "model_step_texts": model_step_texts,
-                "model_narrative": " ".join(t for t in model_step_texts if t) or None
+                "model_narrative": " ".join(t for t in model_step_texts if t) or None,
+                "checkpoint_dir": (
+                    str(self.runtime_mgr.get_checkpoint_dir(self.model_key))
+                    if self.runtime_mgr.get_checkpoint_dir(self.model_key)
+                    else None
+                ),
+                "model_key": self.model_key,
             }
         )

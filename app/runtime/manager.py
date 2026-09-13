@@ -3,11 +3,23 @@ import os
 import json
 import gc
 import time
+import shutil
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 from app.config import get_base_dir, load_app_config
 
 logger = logging.getLogger(__name__)
+
+EARTHDIAL_REMOTE_CODE_FILES = (
+    "configuration_internvl_chat.py",
+    "configuration_intern_vit.py",
+    "configuration_phi3.py",
+    "conversation.py",
+    "modeling_internvl_chat.py",
+    "modeling_intern_vit.py",
+    "modeling_phi3.py",
+    "preprocessor_config.json",
+)
 
 
 class ModelExecutionError(Exception):
@@ -300,6 +312,48 @@ class ModelRuntimeManager:
             return str(data.get("base_model_name_or_path", "OpenGVLab/InternVL2-4B"))
         return "OpenGVLab/InternVL2-4B"
 
+    def _ensure_earthdial_remote_code(self, artifact_dir: Path) -> None:
+        """Best-effort copy of the InternVL2 remote-code files into an artifact dir.
+
+        A fresh clone only ships the fine-tuned EarthDial weights; the
+        ``trust_remote_code`` modules live in the configured base-model dir. Copy
+        any missing file, never overwriting existing ones, and never raise so the
+        eventual model load can surface its own error.
+        """
+        try:
+            configured = (
+                self.config.model_store.earthdial_base_model_path
+                or self.config.runtime.base_model_path
+                or "models/InternVL2-4B"
+            )
+            base_dir = self._resolve_path(configured)
+        except Exception as exc:
+            logger.warning("Could not resolve EarthDial base-model dir: %s", exc)
+            return
+
+        for filename in EARTHDIAL_REMOTE_CODE_FILES:
+            destination = artifact_dir / filename
+            if destination.exists():
+                continue
+            source = base_dir / filename
+            if not source.exists():
+                logger.warning(
+                    "EarthDial remote-code file %s missing from base model dir %s; skipping.",
+                    filename,
+                    base_dir,
+                )
+                continue
+            try:
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(str(source), str(destination))
+                logger.info(
+                    "Provisioned EarthDial remote-code file %s from %s.", filename, base_dir
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Could not provision EarthDial remote-code file %s: %s", filename, exc
+                )
+
     def _load_real_model(self, model_key: str):
         import torch
 
@@ -324,6 +378,7 @@ class ModelRuntimeManager:
             return {"kind": "dofa", "model": model, "checkpoint_dir": str(artifact_dir)}
 
         if model_key == "earthdial-original":
+            self._ensure_earthdial_remote_code(artifact_dir)
             import transformers
 
             local_only = not self.config.runtime.allow_model_downloads
