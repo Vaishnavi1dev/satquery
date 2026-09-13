@@ -12,6 +12,29 @@ from app.runtime.manager import ModelExecutionError
 _BEN_CACHE: Dict[str, Dict[str, Any]] = {}
 
 
+WATER_GATE_PROMPT = (
+    "Is a water body, sea, river, lake, harbour, or port visible in this image? "
+    "Answer with Yes or No and one short reason."
+)
+
+_WATER_GATE_NEGATIONS = ("no water", "no harbour", "no port")
+
+
+def _water_present_from_gate(response: Optional[str]) -> bool:
+    """Return True only when the water-presence gate clearly asserts yes.
+
+    A response counts as water-present only when it contains an explicit ``yes``
+    and none of the explicit negative phrases. Anything else (a ``no``, an
+    ambiguous answer, or no model output at all) means water is absent.
+    """
+    if not isinstance(response, str):
+        return False
+    low = response.lower()
+    if any(neg in low for neg in _WATER_GATE_NEGATIONS):
+        return False
+    return re.search(r"\byes\b", low) is not None
+
+
 def _get_benchmark_metadata(filename: str) -> Optional[Dict[str, Any]]:
     """Lookup ground-truth remote-sensing metadata for sample patches."""
     global _BEN_CACHE
@@ -107,12 +130,37 @@ def _analyze_image_pixels(filepath: str) -> Dict[str, Any]:
         return {}
 
 
+def _dilate_binary(mask: np.ndarray, radius: int) -> np.ndarray:
+    """Binary dilation by a square structuring element (Chebyshev radius).
+
+    Used only to expand the dark, low-backscatter water region just enough to
+    envelop bright specular vessel returns that sit on the water surface.
+    """
+    if radius <= 0:
+        return mask
+    out = mask.copy()
+    for _ in range(radius):
+        grown = out.copy()
+        grown[1:, :] |= out[:-1, :]
+        grown[:-1, :] |= out[1:, :]
+        grown[:, 1:] |= out[:, :-1]
+        grown[:, :-1] |= out[:, 1:]
+        out = grown
+    return out
+
+
 def _count_vessels(filepath: str, water_pct: float) -> Dict[str, Any]:
-    """Deterministic vessel counting from bright specular targets over dark,
-    low-backscatter (water) regions. Lightweight PIL + numpy only."""
+    """Deterministic vessel counting from bright specular targets that lie on a
+    detected water / low-backscatter region. Lightweight PIL + numpy only.
+
+    Returns the ACTUAL number of qualifying bright-target clusters, the bounding
+    box of the largest cluster (expressed in 512-space), and the water mask the
+    clustering was constrained to. Boxes are always derived from target clusters,
+    never from the water mask itself.
+    """
     def _fallback() -> Dict[str, Any]:
         # No readable image -> no genuine cluster measurement, so report no count.
-        return {"count": None, "box": None}
+        return {"count": None, "box": None, "water_mask": None}
 
     try:
         p = Path(filepath)
@@ -137,11 +185,17 @@ def _count_vessels(filepath: str, water_pct: float) -> Dict[str, Any]:
         dark_thresh = float(np.percentile(gray, 35))
         water_scan = (gray <= dark_thresh) & (b >= r * 0.90)
         if float(np.mean(water_scan)) < 0.01:
-            return {"count": 0, "box": None}
+            return {"count": 0, "box": None, "water_mask": water_scan}
+
+        # Expand the dark water region only far enough to envelop on-water bright
+        # specular returns; this keeps the clustering confined to the water body.
+        water_radius = max(8, int(0.06 * min(h, w)))
+        water_context = _dilate_binary(water_scan, water_radius)
 
         # Bright specular / metallic point targets (vessel hulls & superstructure)
+        # that are spatially associated with the detected water region.
         bright_thresh = float(np.percentile(gray, 90))
-        targets = (gray >= bright_thresh) & (~water_scan)
+        targets = (gray >= bright_thresh) & (~water_scan) & water_context
 
         grid = 8
         cell_counts = np.zeros((grid, grid), dtype=np.int32)
@@ -154,22 +208,27 @@ def _count_vessels(filepath: str, water_pct: float) -> Dict[str, Any]:
         cell_area = max(1, (h // grid) * (w // grid))
         min_px = max(2, int(0.02 * cell_area))
         occupied = cell_counts >= min_px
+        min_cluster_px = max(min_px, int(0.0005 * h * w))
 
         # Count distinct 8-connected clusters of occupied grid cells (pure Python).
         # Each cluster must cover a genuine minimum bright-pixel area; the reported
-        # value is the ACTUAL number of qualifying clusters (never clamped).
+        # value is the ACTUAL number of qualifying clusters (never clamped). The
+        # largest qualifying cluster supplies the reported box.
         visited = np.zeros((grid, grid), dtype=bool)
-        min_cluster_px = max(min_px, int(0.0005 * h * w))
         clusters = 0
+        largest_cells: List[tuple] = []
+        largest_px = 0
         for i in range(grid):
             for j in range(grid):
                 if occupied[i, j] and not visited[i, j]:
                     stack = [(i, j)]
                     visited[i, j] = True
                     cluster_px = 0
+                    cells = []
                     while stack:
                         ci, cj = stack.pop()
                         cluster_px += int(cell_counts[ci, cj])
+                        cells.append((ci, cj))
                         for di in (-1, 0, 1):
                             for dj in (-1, 0, 1):
                                 ni, nj = ci + di, cj + dj
@@ -178,20 +237,24 @@ def _count_vessels(filepath: str, water_pct: float) -> Dict[str, Any]:
                                     stack.append((ni, nj))
                     if cluster_px >= min_cluster_px:
                         clusters += 1
+                        if cluster_px > largest_px:
+                            largest_px = cluster_px
+                            largest_cells = cells
 
         if clusters == 0:
-            return {"count": 0, "box": None}
+            return {"count": 0, "box": None, "water_mask": water_scan}
 
-        count = int(clusters)
-
-        di, dj = np.unravel_index(int(np.argmax(cell_counts)), cell_counts.shape)
-        x1 = int(dj * 512 / grid)
-        y1 = int(di * 512 / grid)
-        x2 = int((dj + 1) * 512 / grid)
-        y2 = int((di + 1) * 512 / grid)
+        rows = [ci for ci, _ in largest_cells]
+        cols = [cj for _, cj in largest_cells]
+        i0, i1 = min(rows), max(rows)
+        j0, j1 = min(cols), max(cols)
+        x1 = int(j0 * 512 / grid)
+        y1 = int(i0 * 512 / grid)
+        x2 = int((j1 + 1) * 512 / grid)
+        y2 = int((i1 + 1) * 512 / grid)
         pad = 24
         box = [max(0, x1 - pad), max(0, y1 - pad), min(512, x2 + pad), min(512, y2 + pad)]
-        return {"count": count, "box": box}
+        return {"count": int(clusters), "box": box, "water_mask": water_scan}
     except Exception:
         return _fallback()
 
@@ -266,6 +329,11 @@ class SingleImageVQATool(ToolBase):
         # Vessel-counting state (populated only by the maritime counting branch)
         vessel_count: Optional[int] = None
         vessel_box_512: Optional[List[int]] = None
+        vessel_gate_branch: bool = False
+        water_detected: Optional[bool] = None
+        count_method: Optional[str] = None
+        water_gate_response: Optional[str] = None
+        water_gate_result: Optional[Dict[str, Any]] = None
 
         if modality == "sar":
             if any(k in q_lower for k in ["backscatter", "bright", "white", "intensity"]):
@@ -349,48 +417,72 @@ class SingleImageVQATool(ToolBase):
                 any(k in q_lower for k in ["how many", "count", "number of", "quantity"])
                 and any(k in q_lower for k in ["ship", "ships", "boat", "boats", "vessel", "vessels", "cargo", "berthed", "docked", "anchorage"])
             ):
-                coastal_labels = any(
-                    any(t in l.lower() for t in ["water", "marine", "sea", "lake", "beach", "coast", "shore", "dune", "sand", "harbor", "harbour", "port"])
-                    for l in labels
-                )
-                maritime_evidence = (
-                    has_water or water_pct > 0.0 or coastal_labels
-                    or "water" in fn.lower() or "port" in fn.lower()
-                    or "cochin" in fn.lower() or "visakhapatnam" in fn.lower()
-                )
-                if envelope and getattr(envelope, "filepath", None):
-                    count_info = _count_vessels(envelope.filepath, water_pct)
-                else:
-                    count_info = {"count": None, "box": None}
-                vessel_count = count_info.get("count")
-                vessel_box_512 = count_info.get("box")
-                if vessel_count is not None and not maritime_evidence:
-                    vessel_count = 0
+                vessel_gate_branch = True
+                # Genuine water-presence gate using the EarthDial checkpoint already
+                # loaded for this step (no extra load; a second inference on the
+                # same resident handle). Vessel counting only proceeds when the model
+                # explicitly asserts that water / a harbour / a port is present.
+                water_gate_response = None
+                if envelope and getattr(envelope, "filepath", None) and earthdial_key:
+                    try:
+                        water_gate_result = self.runtime_mgr.run_earthdial(
+                            WATER_GATE_PROMPT,
+                            [envelope.filepath],
+                            clean_params,
+                            model_key=earthdial_key,
+                        )
+                        water_gate_response = self.usable_model_text(water_gate_result)
+                    except Exception as exc:
+                        self.runtime_mgr.load_errors[earthdial_key] = (
+                            f"Inference: {type(exc).__name__}: {exc}"
+                        )
+                        water_gate_result = None
+                        water_gate_response = None
+                water_detected = _water_present_from_gate(water_gate_response)
+
+                if not water_detected:
+                    # No water -> cargo-vessel counting is not applicable. Never
+                    # return 0 (which would imply a real negative measurement) and
+                    # never draw a box or emit vessel-count evidence.
+                    count_method = "not_applicable"
+                    vessel_count = None
                     vessel_box_512 = None
-                if vessel_box_512:
-                    cx = (vessel_box_512[0] + vessel_box_512[2]) / 2.0
-                    cy = (vessel_box_512[1] + vessel_box_512[3]) / 2.0
-                    vessel_region = (
-                        ("northern" if cy < 256 else "southern")
-                        + "-"
-                        + ("western" if cx < 256 else "eastern")
-                        + " sector"
+                    text = (
+                        "No significant water body or port is visible in this scene, so cargo-vessel "
+                        "counting is not applicable."
                     )
                 else:
-                    vessel_region = top_water_quad
-                if vessel_count is None:
-                    text = (
-                        "Vessel count unavailable for this input: the image could not be read, so no genuine "
-                        "bright-target cluster measurement could be performed."
-                    )
-                elif vessel_count > 0:
-                    text = (
-                        f"Identified and counted {vessel_count} cargo vessels docked in the port basin. "
-                        f"The vessel concentration is highest in the {vessel_region}, where bright specular hull "
-                        f"returns resolve against the surrounding low-backscatter water surface."
-                    )
-                else:
-                    text = "No cargo vessels detected on the water."
+                    count_method = "bright-target clustering heuristic"
+                    if envelope and getattr(envelope, "filepath", None):
+                        count_info = _count_vessels(envelope.filepath, water_pct)
+                    else:
+                        count_info = {"count": None, "box": None}
+                    vessel_count = count_info.get("count")
+                    vessel_box_512 = count_info.get("box")
+                    if vessel_box_512:
+                        cx = (vessel_box_512[0] + vessel_box_512[2]) / 2.0
+                        cy = (vessel_box_512[1] + vessel_box_512[3]) / 2.0
+                        vessel_region = (
+                            ("northern" if cy < 256 else "southern")
+                            + "-"
+                            + ("western" if cx < 256 else "eastern")
+                            + " sector"
+                        )
+                    else:
+                        vessel_region = top_water_quad
+                    if vessel_count is None:
+                        text = (
+                            "Vessel count unavailable for this input: the image could not be read, so no genuine "
+                            "bright-target cluster measurement could be performed."
+                        )
+                    elif vessel_count > 0:
+                        text = (
+                            f"Identified and counted {vessel_count} cargo vessels docked in the port basin. "
+                            f"The vessel concentration is highest in the {vessel_region}, where bright specular hull "
+                            f"returns resolve against the surrounding low-backscatter water surface."
+                        )
+                    else:
+                        text = "No cargo vessels detected on the water."
 
             # 3. Maritime / Ships / Vessels / Ports
             elif any(re.search(rf"\b{k}\b", q_lower) for k in ["ship", "ships", "boat", "boats", "vessel", "vessels", "dock", "docks", "pier", "piers", "berth", "berths", "harbor", "harbour", "port", "ports", "anchorage", "navy", "naval"]):
@@ -520,7 +612,17 @@ class SingleImageVQATool(ToolBase):
                     )
 
         model_text = self.usable_model_text(real_result)
-        if model_text:
+        if vessel_gate_branch:
+            # The counting text is grounded in the water gate and the measured
+            # bright-target clusters; the model's generic answer must never
+            # override the honest counting statement.
+            if water_gate_response is not None:
+                conf = 0.90
+                confidence_basis = "nominal_model_estimate"
+            else:
+                conf = None
+                confidence_basis = "not_available"
+        elif model_text:
             text = model_text
             conf = 0.90
             confidence_basis = "nominal_model_estimate"
@@ -554,19 +656,18 @@ class SingleImageVQATool(ToolBase):
             y2 = max(0, min(orig_h, int(b[3] / 512.0 * orig_h)))
             return [x1, y1, x2, y2]
 
-        if vessel_count is not None:
-            b_vessel = _scale_box(vessel_box_512) if vessel_box_512 else None
-            if b_vessel is not None:
-                predicted_boxes.append(b_vessel)
+        # A vessel_count evidence item and a box are emitted only for a genuine
+        # positive count measured on a gate-confirmed water body.
+        if vessel_gate_branch and water_detected and vessel_count and vessel_count > 0 and vessel_box_512:
+            b_vessel = _scale_box(vessel_box_512)
+            predicted_boxes.append(b_vessel)
             evidence_items.append({
                 "type": "vessel_count",
                 "source_model": "earthdial",
                 "description": (
                     f"Counted {vessel_count} cargo vessels in the port basin via bright-target pixel clustering."
-                    if vessel_count > 0
-                    else "No cargo vessels detected on the water via bright-target pixel clustering."
                 ),
-                "method": "bright-target clustering heuristic",
+                "method": count_method,
                 "score": round(conf, 3) if conf is not None else None,
                 "modality": modality,
                 "region": b_vessel,
@@ -574,6 +675,26 @@ class SingleImageVQATool(ToolBase):
 
         checkpoint_dir = self.runtime_mgr.get_checkpoint_dir(earthdial_key)
         has_trained_weights = checkpoint_dir is not None
+
+        metadata: Dict[str, Any] = {
+            "modality": modality,
+            "earthdial_model_key": earthdial_key,
+            "confidence_basis": confidence_basis,
+            "slot": "S1",
+            "fine_tuned_weights_present": has_trained_weights,
+            "inference_backend": "checkpoint" if (model_text or water_gate_response) else "simulation",
+            "checkpoint_dir": (
+                real_result.get("checkpoint_dir") if isinstance(real_result, dict)
+                else (
+                    water_gate_result.get("checkpoint_dir") if isinstance(water_gate_result, dict)
+                    else (str(checkpoint_dir) if checkpoint_dir else None)
+                )
+            ),
+        }
+        if vessel_gate_branch:
+            metadata["water_detected"] = bool(water_detected)
+            metadata["count_method"] = count_method
+            metadata["water_gate_response"] = water_gate_response
 
         return ToolOutput(
             tool_name=self.name,
@@ -585,16 +706,5 @@ class SingleImageVQATool(ToolBase):
             evidence_ptr=envelope.image_id if envelope else None,
             evidence=evidence_items,
             parameters_used=clean_params,
-            metadata={
-                "modality": modality,
-                "earthdial_model_key": earthdial_key,
-                "confidence_basis": confidence_basis,
-                "slot": "S1",
-                "fine_tuned_weights_present": has_trained_weights,
-                "inference_backend": "checkpoint" if model_text else "simulation",
-                "checkpoint_dir": (
-                    real_result.get("checkpoint_dir") if isinstance(real_result, dict)
-                    else (str(checkpoint_dir) if checkpoint_dir else None)
-                ),
-            }
+            metadata=metadata,
         )

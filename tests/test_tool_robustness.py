@@ -34,10 +34,11 @@ class _DummyTool(ToolBase):
 class _StubRuntime:
     """Minimal runtime that never loads a real checkpoint."""
 
-    def __init__(self, dofa_result=None, earthdial_result=None, checkpoint_dir=None):
+    def __init__(self, dofa_result=None, earthdial_result=None, checkpoint_dir=None, water_gate_result=None):
         self._dofa = dofa_result
         self._earthdial = earthdial_result
         self._ckpt = checkpoint_dir
+        self._water_gate = water_gate_result
         self.load_errors = {}
 
     @staticmethod
@@ -50,7 +51,11 @@ class _StubRuntime:
     def run_dofa_fusion(self, *args, **kwargs):
         return self._dofa
 
-    def run_earthdial(self, *args, **kwargs):
+    def run_earthdial(self, query="", *args, **kwargs):
+        # The water-presence gate uses a distinct prompt; serve it separately from
+        # the tool's main-query inference so the two are independently testable.
+        if isinstance(query, str) and "harbour, or port" in query:
+            return self._water_gate
         return self._earthdial
 
     def get_checkpoint_dir(self, *args, **kwargs):
@@ -172,11 +177,87 @@ def test_vessel_count_is_not_clamped(tmp_path):
 
 def test_vessel_count_plain_water_is_zero(tmp_path):
     path = _write_rgb(tmp_path / "plain_water.png", _plain_water())
-    assert _count_vessels(path, 90.0) == {"count": 0, "box": None}
+    result = _count_vessels(path, 90.0)
+    assert result["count"] == 0
+    assert result["box"] is None
 
 
 def test_vessel_count_unreadable_is_none(tmp_path):
-    assert _count_vessels(str(tmp_path / "missing.png"), 0.0) == {"count": None, "box": None}
+    result = _count_vessels(str(tmp_path / "missing.png"), 0.0)
+    assert result["count"] is None
+    assert result["box"] is None
+
+
+# --- Vessel counting: real water-presence gate -----------------------------
+
+VESSEL_QUERY = "Identify and count the cargo vessels in this image."
+WATER_YES = "Yes, a harbour water body is clearly visible in this image."
+WATER_NO = "No, there is no water body, harbour, or port visible in this scene."
+
+
+def _vessel_env(tmp_path, name, arr):
+    path = _write_rgb(tmp_path / name, arr)
+    return _envelope(name, "optical", path)
+
+
+def test_vessel_gate_non_water_no_count_no_box_no_evidence(tmp_path):
+    """A non-water scene must never be counted or boxed (the reported bug)."""
+    env = _vessel_env(tmp_path, "land.png", _blob_image([(0, 0), (384, 384)]))
+    runtime = _StubRuntime(earthdial_result=None, water_gate_result={"text": WATER_NO})
+    out = _vqa_tool(runtime).invoke({"query": VESSEL_QUERY, "envelope": env})
+    assert out.metadata["water_detected"] is False
+    assert out.metadata["count_method"] == "not_applicable"
+    assert out.metadata["confidence_basis"] == "nominal_model_estimate"
+    assert out.boxes is None
+    assert not any(ev.get("type") == "vessel_count" for ev in out.evidence)
+    assert "No significant water body or port is visible" in out.text
+
+
+def test_vessel_gate_water_with_clusters_reports_real_count(tmp_path):
+    env = _vessel_env(tmp_path, "harbour.png", _blob_image([(0, 0), (384, 384)]))
+    runtime = _StubRuntime(earthdial_result=None, water_gate_result={"text": WATER_YES})
+    out = _vqa_tool(runtime).invoke({"query": VESSEL_QUERY, "envelope": env})
+    assert out.metadata["water_detected"] is True
+    assert out.metadata["count_method"] == "bright-target clustering heuristic"
+    vessel_ev = [ev for ev in out.evidence if ev.get("type") == "vessel_count"]
+    assert len(vessel_ev) == 1
+    assert vessel_ev[0]["description"].startswith("Counted 2 cargo vessels")
+    assert out.boxes is not None and len(out.boxes) == 1
+    assert "2 cargo vessels" in out.text
+    x1, y1, x2, y2 = out.boxes[0]
+    assert 0 <= x1 <= x2 <= 512 and 0 <= y1 <= y2 <= 512
+
+
+def test_vessel_gate_water_without_clusters_is_zero_no_box(tmp_path):
+    env = _vessel_env(tmp_path, "open_water.png", _plain_water())
+    runtime = _StubRuntime(earthdial_result=None, water_gate_result={"text": WATER_YES})
+    out = _vqa_tool(runtime).invoke({"query": VESSEL_QUERY, "envelope": env})
+    assert out.metadata["water_detected"] is True
+    assert out.metadata["count_method"] == "bright-target clustering heuristic"
+    assert out.boxes is None
+    assert not any(ev.get("type") == "vessel_count" for ev in out.evidence)
+    assert "No cargo vessels detected on the water" in out.text
+
+
+def test_vessel_gate_missing_model_is_not_applicable(tmp_path):
+    """No gate model output -> refuse to count instead of guessing."""
+    env = _vessel_env(tmp_path, "no_model.png", _blob_image([(0, 0)]))
+    runtime = _StubRuntime(earthdial_result=None, water_gate_result=None)
+    out = _vqa_tool(runtime).invoke({"query": VESSEL_QUERY, "envelope": env})
+    assert out.metadata["water_detected"] is False
+    assert out.metadata["count_method"] == "not_applicable"
+    assert out.metadata["confidence_basis"] == "not_available"
+    assert out.boxes is None
+    assert not any(ev.get("type") == "vessel_count" for ev in out.evidence)
+
+
+def test_water_present_from_gate_rejects_negations_and_ambiguity():
+    from app.tools.rs_vqa import _water_present_from_gate
+    assert _water_present_from_gate("Yes, a river is visible.") is True
+    assert _water_present_from_gate("No, there is no water body.") is False
+    assert _water_present_from_gate("No water or harbour is visible.") is False
+    assert _water_present_from_gate("Maybe a small pond.") is False
+    assert _water_present_from_gate(None) is False
 
 
 # --- Null / extra image envelopes ------------------------------------------

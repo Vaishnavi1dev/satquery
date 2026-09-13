@@ -496,8 +496,23 @@ def test_aggregator_reports_raw_confidence_without_temperature_scaling():
     assert agg_multi.uncertainty_flag is True
 
 
-def test_vessel_count_reports_actual_count_not_fabricated(tmp_path, agent):
-    """High finding: the maritime count is the real cluster count, never a floor of 3."""
+def test_vessel_count_reports_actual_count_not_fabricated(tmp_path, agent, monkeypatch):
+    """High finding: the maritime count is the real cluster count, never a floor of 3.
+
+    Vessel counting is now gated on a real water-presence check. The runtime is
+    stubbed to a deterministic "yes" so the measured cluster count is exercised
+    without depending on live model output.
+    """
+    mgr = agent.registry.runtime_mgr
+    monkeypatch.setattr(mgr, "ensure_model_loaded", lambda *a, **k: None)
+
+    def _fake_run_earthdial(query, image_paths, parameters, model_key=None, **kwargs):
+        if isinstance(query, str) and "harbour, or port" in query:
+            return {"text": "Yes, a harbour water body is visible.", "checkpoint_dir": "ckpt"}
+        return None
+
+    monkeypatch.setattr(mgr, "run_earthdial", _fake_run_earthdial)
+
     img = make_real_envelope(tmp_path, "img_vessel_count", modality="optical")
     res = agent.execute_query(
         session_id="sess_test_vessel",
@@ -507,7 +522,7 @@ def test_vessel_count_reports_actual_count_not_fabricated(tmp_path, agent):
 
     assert res.task == "vqa"
     vessel_ev = [ev for ev in res.evidence if ev.get("type") == "vessel_count"]
-    assert vessel_ev, "expected a vessel_count evidence item for this maritime query"
+    assert vessel_ev, "expected a vessel_count evidence item for this water scene"
     count = int(vessel_ev[0]["description"].split()[1])
     assert count == 1
     assert count < 3  # the removed clamp would have forced at least 3
