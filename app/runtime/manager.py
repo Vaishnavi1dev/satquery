@@ -22,6 +22,23 @@ EARTHDIAL_REMOTE_CODE_FILES = (
 )
 
 
+EARTHDIAL_MODEL_KEYS = ("earthdial-4b", "earthdial-original", "earthdial-ms")
+
+
+def earthdial_model_key_for(modalities, default_key: str) -> str:
+    """Route MS/SAR inputs to the multispectral EarthDial checkpoint.
+
+    Returns ``"earthdial-ms"`` when any supplied modality is ``"sar"`` or
+    ``"multispectral"``; otherwise returns ``default_key`` so optical inputs keep
+    their existing single-image (``earthdial-4b``) and multi-temporal
+    (``earthdial-original``) checkpoints.
+    """
+    normalized = {str(m).lower() for m in modalities if m}
+    if "sar" in normalized or "multispectral" in normalized:
+        return "earthdial-ms"
+    return default_key
+
+
 class ModelExecutionError(Exception):
     def __init__(self, code: str, message: str, details: Optional[dict] = None):
         super().__init__(message)
@@ -164,6 +181,11 @@ class ModelRuntimeManager:
 
         return "cpu"
 
+    @staticmethod
+    def earthdial_model_key_for(modalities, default_key: str) -> str:
+        """Select the EarthDial checkpoint for the given input modalities."""
+        return earthdial_model_key_for(modalities, default_key)
+
     def ensure_model_loaded(self, model_key: str, load_group: str):
         """Load a checkpoint-backed model when possible, otherwise retain simulation mode.
 
@@ -188,6 +210,22 @@ class ModelRuntimeManager:
             logger.info("Evicting llm_secondary to accommodate llm_primary under VRAM budget.")
             self.unload_group("llm_secondary")
 
+        # All EarthDial checkpoints are ~4B and cannot co-reside in the 8 GB
+        # budget, even when they share a load group (single-image optical vs SAR).
+        # Release the other EarthDial variants first; never touch DOFA.
+        if model_key in EARTHDIAL_MODEL_KEYS:
+            conflicting = [
+                key for key in EARTHDIAL_MODEL_KEYS
+                if key != model_key and key in self.active_models
+            ]
+            if conflicting:
+                logger.info(
+                    "Evicting EarthDial variant(s) %s before loading %s (VRAM budget).",
+                    ", ".join(conflicting),
+                    model_key,
+                )
+                self._unload_models(conflicting)
+
         artifact_dir = self._artifact_dir(model_key)
 
         logger.info(f"Loading {model_key} (Group: {load_group}, Device: {self.device}, Mode: {self.mode})...")
@@ -207,7 +245,7 @@ class ModelRuntimeManager:
         # Original EarthDial weights may be missing or fail to load. Fall back to the
         # fine-tuned adapter by aliasing the same handle object (no extra VRAM), so the
         # multi-temporal tools keep running in real mode instead of dropping to simulation.
-        if handle is None and model_key == "earthdial-original" and self.mode == "real":
+        if handle is None and model_key in ("earthdial-original", "earthdial-ms") and self.mode == "real":
             try:
                 fallback_handle = self.ensure_model_loaded("earthdial-4b", "llm_primary")
             except Exception as exc:
@@ -215,9 +253,9 @@ class ModelRuntimeManager:
                 fallback_handle = None
             if fallback_handle is not None:
                 fallback_record = self.active_models.get("earthdial-4b", {})
-                reason = error or "original EarthDial weights unavailable"
+                reason = error or f"{model_key} weights unavailable"
                 logger.info(
-                    "Aliasing the fine-tuned earthdial-4b handle for earthdial-original (%s).", reason
+                    "Aliasing the fine-tuned earthdial-4b handle for %s (%s).", model_key, reason
                 )
                 self.active_models[model_key] = {
                     "loaded_at": time.time(),
@@ -226,7 +264,7 @@ class ModelRuntimeManager:
                     "handle": fallback_handle,
                     "backend": fallback_record.get("backend", "checkpoint"),
                     "error": (
-                        f"original EarthDial load failed ({reason}); "
+                        f"{model_key} load failed ({reason}); "
                         "using fine-tuned earthdial-4b adapter handle"
                     ),
                 }
@@ -256,6 +294,13 @@ class ModelRuntimeManager:
             if not root_path.is_dir():
                 return None
             if (root_path / "config.json").exists() or (root_path / "adapter_model.safetensors").exists():
+                return root_path
+            return None
+        elif model_key == "earthdial-ms":
+            root_path = self._resolve_path(store.earthdial_ms_model_path)
+            if not root_path.is_dir():
+                return None
+            if (root_path / "config.json").exists() or any(root_path.glob("*.safetensors")):
                 return root_path
             return None
         else:
@@ -377,7 +422,7 @@ class ModelRuntimeManager:
                 model.to(self.device)
             return {"kind": "dofa", "model": model, "checkpoint_dir": str(artifact_dir)}
 
-        if model_key == "earthdial-original":
+        if model_key in ("earthdial-original", "earthdial-ms"):
             self._ensure_earthdial_remote_code(artifact_dir)
             import transformers
 
@@ -418,7 +463,7 @@ class ModelRuntimeManager:
                 "tokenizer": tokenizer,
                 "checkpoint_dir": str(artifact_dir),
                 "base_model": str(artifact_dir),
-                "variant": "original",
+                "variant": "original" if model_key == "earthdial-original" else "multispectral",
             }
 
         import transformers
@@ -610,9 +655,15 @@ class ModelRuntimeManager:
             logger.warning("Failed to prepare remote generation for EarthDial: %s", exc)
             return False
 
-    def run_earthdial(self, query: str, image_paths: List[str], parameters: Dict[str, Any]):
+    def run_earthdial(
+        self,
+        query: str,
+        image_paths: List[str],
+        parameters: Dict[str, Any],
+        model_key: Optional[str] = None,
+    ):
         handle = None
-        requested_key = (parameters or {}).get("model_key")
+        requested_key = model_key or (parameters or {}).get("model_key")
         if requested_key:
             candidate = self.get_model_handle(requested_key)
             if candidate and candidate.get("kind") == "earthdial":
@@ -622,7 +673,7 @@ class ModelRuntimeManager:
             # Load-group eviction keeps only one EarthDial variant resident at a time.
             # The genuine original weights are preferred now that they load; if they
             # were aliased to the fine-tuned adapter this resolves to the same object.
-            for key in ("earthdial-original", "earthdial-4b"):
+            for key in ("earthdial-original", "earthdial-4b", "earthdial-ms"):
                 candidate = self.get_model_handle(key)
                 if candidate and candidate.get("kind") == "earthdial":
                     handle = candidate
@@ -698,7 +749,7 @@ class ModelRuntimeManager:
 
     def get_artifact_status(self) -> Dict[str, Any]:
         status = {}
-        for key in ("earthdial-4b", "earthdial-original", "dofa-fusion"):
+        for key in ("earthdial-4b", "earthdial-original", "earthdial-ms", "dofa-fusion"):
             path = self._artifact_dir(key)
             record = self.active_models.get(key, {})
             status[key] = {
@@ -708,6 +759,23 @@ class ModelRuntimeManager:
                 "load_error": self.load_errors.get(key),
             }
         return status
+
+    def _unload_models(self, model_keys):
+        """Drop specific model records and release their VRAM (never other groups)."""
+        removed = False
+        for key in list(model_keys):
+            if key in self.active_models:
+                del self.active_models[key]
+                removed = True
+        if not removed:
+            return
+        gc.collect()
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except ImportError:
+            pass
 
     def unload_group(self, load_group: str):
         to_remove = [k for k, v in self.active_models.items() if v.get("load_group") == load_group]

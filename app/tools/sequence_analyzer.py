@@ -92,7 +92,10 @@ class MultiTemporalSequenceTool(ToolBase):
                 f"Multi-temporal sequence analysis requires at least 3 co-registered images (T1...TN), got {len(images)}."
             )
 
-        self.runtime_mgr.ensure_model_loaded(self.model_key, self.load_group)
+        earthdial_key = self.runtime_mgr.earthdial_model_key_for(
+            [img.modality for img in images], self.model_key
+        )
+        self.runtime_mgr.ensure_model_loaded(earthdial_key, self.load_group)
 
         query = inputs.get("query", "").strip()
         q_lower = query.lower() if query else "summarize temporal sequence events"
@@ -165,11 +168,13 @@ class MultiTemporalSequenceTool(ToolBase):
                     f"vegetation change, water change, or land transformation. Be concise."
                 )
                 try:
-                    real = self.runtime_mgr.run_earthdial(prompt, [fp_a, fp_b], clean_params)
+                    real = self.runtime_mgr.run_earthdial(
+                        prompt, [fp_a, fp_b], clean_params, model_key=earthdial_key
+                    )
                     if real and real.get("text"):
                         model_text = real["text"].strip() or None
                 except Exception as exc:
-                    self.runtime_mgr.load_errors[self.model_key] = f"Inference: {type(exc).__name__}: {exc}"
+                    self.runtime_mgr.load_errors[earthdial_key] = f"Inference: {type(exc).__name__}: {exc}"
             if model_text:
                 any_model_text = True
 
@@ -319,9 +324,10 @@ class MultiTemporalSequenceTool(ToolBase):
                 ),
                 "model_step_texts": model_step_texts,
                 "model_narrative": " ".join(t for t in model_step_texts if t) or None,
+                "earthdial_model_key": earthdial_key,
                 "checkpoint_dir": (
-                    str(self.runtime_mgr.get_checkpoint_dir(self.model_key))
-                    if self.runtime_mgr.get_checkpoint_dir(self.model_key)
+                    str(self.runtime_mgr.get_checkpoint_dir(earthdial_key))
+                    if self.runtime_mgr.get_checkpoint_dir(earthdial_key)
                     else None
                 ),
                 "model_key": self.model_key,

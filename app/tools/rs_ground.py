@@ -19,12 +19,13 @@ class TextGuidedGroundingTool(ToolBase):
 
     def invoke(self, inputs: Dict[str, Any], parameters: Optional[Dict[str, Any]] = None) -> ToolOutput:
         clean_params = self.validate_and_filter_params(parameters)
-        self.runtime_mgr.ensure_model_loaded(self.model_key, self.load_group)
 
         query = inputs.get("query", "").strip()
-        modality = inputs.get("modality", "optical")
         envelope = inputs.get("envelope")
+        modality = getattr(envelope, "modality", None) or inputs.get("modality", "optical")
         transform_meta = inputs.get("transform_meta", {})
+        earthdial_key = self.runtime_mgr.earthdial_model_key_for([modality], self.model_key)
+        self.runtime_mgr.ensure_model_loaded(earthdial_key, self.load_group)
 
         q_lower = query.lower()
         real_result = None
@@ -34,9 +35,10 @@ class TextGuidedGroundingTool(ToolBase):
                     f"Locate and describe the image region containing: {query}. Return bounding boxes as [ymin, xmin, ymax, xmax] normalized from 0 to 1000.",
                     [envelope.filepath],
                     clean_params,
+                    model_key=earthdial_key,
                 )
             except Exception as exc:
-                self.runtime_mgr.load_errors[self.model_key] = f"Inference: {type(exc).__name__}: {exc}"
+                self.runtime_mgr.load_errors[earthdial_key] = f"Inference: {type(exc).__name__}: {exc}"
 
         # Check for non-existent objects (honesty gate)
         unrealistic_targets = ["volcano", "pyramid", "glacier", "submarine", "spaceship", "alien"]
@@ -101,7 +103,7 @@ class TextGuidedGroundingTool(ToolBase):
             )
             evidence_items = []
 
-        checkpoint_dir = self.runtime_mgr.get_checkpoint_dir("earthdial-4b")
+        checkpoint_dir = self.runtime_mgr.get_checkpoint_dir(earthdial_key)
         has_trained_weights = checkpoint_dir is not None
 
         return ToolOutput(
@@ -117,6 +119,7 @@ class TextGuidedGroundingTool(ToolBase):
             metadata={
                 "target_query": query,
                 "label": label,
+                "earthdial_model_key": earthdial_key,
                 "confidence_basis": confidence_basis,
                 "box_count": len(projected_boxes),
                 "fine_tuned_weights_present": has_trained_weights,

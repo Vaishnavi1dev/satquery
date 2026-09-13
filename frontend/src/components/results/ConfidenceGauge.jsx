@@ -89,8 +89,11 @@ export default function ConfidenceGauge({ confidence, rawConfidence, uncertainty
           <span>Calibration Mode</span>
           <span style={{ color: 'var(--cyan-400)' }}>Fixed-Temperature Logit Rescaling</span>
         </div>
-        <div className="confidence-metric-row">
-          <span>Temperature (T, fixed constant)</span>
+        <div
+          className="confidence-metric-row"
+          title="A fixed softening constant applied to logits; it is not fitted on a calibration set."
+        >
+          <span>Temperature (T, fixed heuristic — not fitted)</span>
           <span>{temperature.toFixed(2)}</span>
         </div>
         <div className="confidence-metric-row">

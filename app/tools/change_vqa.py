@@ -18,7 +18,10 @@ class BiTemporalChangeVQATool(ToolBase):
         images = inputs.get("images", [])
         self.enforce_joint_use(images, required_count=2)
 
-        self.runtime_mgr.ensure_model_loaded(self.model_key, self.load_group)
+        earthdial_key = self.runtime_mgr.earthdial_model_key_for(
+            [img.modality for img in images], self.model_key
+        )
+        self.runtime_mgr.ensure_model_loaded(earthdial_key, self.load_group)
 
         query = inputs.get("query", "").strip()
         if not query:
@@ -36,9 +39,10 @@ class BiTemporalChangeVQATool(ToolBase):
                     query,
                     [t1_env.filepath, t2_env.filepath],
                     clean_params,
+                    model_key=earthdial_key,
                 )
             except Exception as exc:
-                self.runtime_mgr.load_errors[self.model_key] = f"Inference: {type(exc).__name__}: {exc}"
+                self.runtime_mgr.load_errors[earthdial_key] = f"Inference: {type(exc).__name__}: {exc}"
 
         orig_w = max(t1_env.width, t2_env.width)
         orig_h = max(t1_env.height, t2_env.height)
@@ -170,9 +174,10 @@ class BiTemporalChangeVQATool(ToolBase):
                     "checkpoint" if real_result
                     else ("pixel_analysis" if measured_change else "unavailable")
                 ),
+                "earthdial_model_key": earthdial_key,
                 "checkpoint_dir": real_result.get("checkpoint_dir") if real_result else (
-                    str(self.runtime_mgr.get_checkpoint_dir(self.model_key))
-                    if self.runtime_mgr.get_checkpoint_dir(self.model_key)
+                    str(self.runtime_mgr.get_checkpoint_dir(earthdial_key))
+                    if self.runtime_mgr.get_checkpoint_dir(earthdial_key)
                     else None
                 ),
             }

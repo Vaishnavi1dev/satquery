@@ -1,6 +1,51 @@
 import os
+import re
 from typing import Dict, Any, Optional
 from app.tools.base import ToolBase, ToolOutput
+
+
+def _modality_label(modality: str) -> str:
+    """Human-readable modality label used in the caption prompt."""
+    return {
+        "optical": "optical (RGB)",
+        "multispectral": "multispectral",
+        "sar": "SAR",
+    }.get(modality, "optical (RGB)")
+
+
+def _modality_prefix_label(modality: str) -> str:
+    """Factual modality label used in the corrected caption prefix."""
+    return {
+        "optical": "Optical (RGB)",
+        "multispectral": "Multispectral",
+        "sar": "SAR (radar)",
+    }.get(modality, "Optical (RGB)")
+
+
+def _normalize_modality_text(text: str) -> str:
+    """Tidy whitespace/punctuation left behind after removing a token."""
+    text = re.sub(r"\s+", " ", text)
+    text = re.sub(r"\s+([,.;:!?])", r"\1", text)
+    return text.strip()
+
+
+def _correct_modality_claim(text: str, modality: str) -> str:
+    """Remove a wrong multi-spectral claim for non-multispectral inputs.
+
+    The adapted model sometimes emits a canned "Based on multi-spectral..."
+    preface regardless of the actual sensor. For non-multispectral inputs the
+    misleading token is removed entirely, the surrounding text is left otherwise
+    untouched, and a factual ``Observation modality: <label>.`` prefix is added.
+    Multispectral text is returned unchanged.
+    """
+    if not text or modality == "multispectral":
+        return text
+    if not re.search(r"multi[-\s]?spectral", text, flags=re.IGNORECASE):
+        return text
+    cleaned = re.sub(r"multi[-\s]?spectral", "", text, flags=re.IGNORECASE)
+    cleaned = _normalize_modality_text(cleaned)
+    prefix = f"Observation modality: {_modality_prefix_label(modality)}. "
+    return (prefix + cleaned).strip()
 
 
 class SingleImageCaptionTool(ToolBase):
@@ -11,20 +56,23 @@ class SingleImageCaptionTool(ToolBase):
 
     def invoke(self, inputs: Dict[str, Any], parameters: Optional[Dict[str, Any]] = None) -> ToolOutput:
         clean_params = self.validate_and_filter_params(parameters)
-        self.runtime_mgr.ensure_model_loaded(self.model_key, self.load_group)
 
-        modality = inputs.get("modality", "optical")
         envelope = inputs.get("envelope")
+        modality = getattr(envelope, "modality", None) or inputs.get("modality", "optical")
+        earthdial_key = self.runtime_mgr.earthdial_model_key_for([modality], self.model_key)
+        self.runtime_mgr.ensure_model_loaded(earthdial_key, self.load_group)
+
         real_result = None
         if envelope and getattr(envelope, "filepath", None):
             try:
                 real_result = self.runtime_mgr.run_earthdial(
-                    "Describe the remote-sensing scene, land cover, and major visible objects.",
+                    f"Describe this {_modality_label(modality)} remote-sensing scene, land cover, and major visible objects.",
                     [envelope.filepath],
                     clean_params,
+                    model_key=earthdial_key,
                 )
             except Exception as exc:
-                self.runtime_mgr.load_errors[self.model_key] = f"Inference: {type(exc).__name__}: {exc}"
+                self.runtime_mgr.load_errors[earthdial_key] = f"Inference: {type(exc).__name__}: {exc}"
 
         if modality == "sar":
             text = (
@@ -47,10 +95,13 @@ class SingleImageCaptionTool(ToolBase):
                 "perennial canopy clusters and clear water drainage features."
             )
 
-        checkpoint_dir = self.runtime_mgr.get_checkpoint_dir("earthdial-4b")
+        # Fix any wrong multi-spectral claim in the templated text too.
+        text = _correct_modality_claim(text, modality)
+
+        checkpoint_dir = self.runtime_mgr.get_checkpoint_dir(earthdial_key)
         has_trained_weights = checkpoint_dir is not None
         if real_result and real_result.get("text"):
-            text = real_result["text"]
+            text = _correct_modality_claim(real_result["text"], modality)
             conf = 0.90
             confidence_basis = "nominal_model_estimate"
         else:
@@ -69,6 +120,7 @@ class SingleImageCaptionTool(ToolBase):
             parameters_used=clean_params,
             metadata={
                 "modality": modality,
+                "earthdial_model_key": earthdial_key,
                 "confidence_basis": confidence_basis,
                 "slot": "S2",
                 "evidence_status": "unavailable",

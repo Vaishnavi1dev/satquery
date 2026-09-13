@@ -58,6 +58,7 @@ export default function TraceTimeline({ result }) {
         tool_name: toolName,
         duration_ms: durationMs,
         detail,
+        detailParts,
       };
     })
     .filter(Boolean);
@@ -122,18 +123,17 @@ export default function TraceTimeline({ result }) {
                   </span>
                 </div>
 
-                <div className="trace-step-meta">
-                  <span style={{ color: 'var(--cyan-400)' }}>{step.tool_name || step.model_name || 'Agent Controller'}</span>
-                  {step.detail ? (
-                    <span style={{ color: 'var(--text-muted)', marginLeft: '0.5rem' }}>
-                      • {step.detail}
-                    </span>
-                  ) : step.details ? (
-                    <span style={{ color: 'var(--text-muted)', marginLeft: '0.5rem' }}>
-                      • {typeof step.details === 'object' ? JSON.stringify(step.details) : String(step.details)}
-                    </span>
-                  ) : null}
+                <div className="trace-step-tool">
+                  {step.tool_name || step.model_name || 'Agent Controller'}
                 </div>
+
+                {Array.isArray(step.detailParts) && step.detailParts.length > 0 && (
+                  <div className="trace-step-meta">
+                    {step.detailParts.map((part, partIdx) => (
+                      <span key={partIdx} className="trace-step-detail-item">{part}</span>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           );

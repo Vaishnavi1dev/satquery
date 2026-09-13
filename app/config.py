@@ -37,6 +37,7 @@ class ModelStoreConfig(BaseModel):
     earthdial_model_path: str = "models/earthdial"
     dofa_model_path: str = "models/dofa_hf"
     earthdial_bigearthnet_model_path: str = "models/earthdial_bigearthnet_hf"
+    earthdial_ms_model_path: str = "models/earthdial_ms"
     earthdial_base_model_path: Optional[str] = "models/InternVL2-4B"
 
 

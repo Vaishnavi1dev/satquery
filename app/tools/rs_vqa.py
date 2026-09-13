@@ -199,22 +199,25 @@ class SingleImageVQATool(ToolBase):
 
     def invoke(self, inputs: Dict[str, Any], parameters: Optional[Dict[str, Any]] = None) -> ToolOutput:
         clean_params = self.validate_and_filter_params(parameters)
-        self.runtime_mgr.ensure_model_loaded(self.model_key, self.load_group)
 
         query = inputs.get("query", "").strip()
         if not query:
             raise ModelExecutionError("MDL_EMPTY_QUERY", "VQA query string cannot be empty.")
 
-        modality = inputs.get("modality", "optical")
         envelope = inputs.get("envelope")
+        modality = getattr(envelope, "modality", None) or inputs.get("modality", "optical")
+        earthdial_key = self.runtime_mgr.earthdial_model_key_for([modality], self.model_key)
+        self.runtime_mgr.ensure_model_loaded(earthdial_key, self.load_group)
         q_lower = query.lower()
 
         real_result = None
         if envelope and getattr(envelope, "filepath", None):
             try:
-                real_result = self.runtime_mgr.run_earthdial(query, [envelope.filepath], clean_params)
+                real_result = self.runtime_mgr.run_earthdial(
+                    query, [envelope.filepath], clean_params, model_key=earthdial_key
+                )
             except Exception as exc:
-                self.runtime_mgr.load_errors[self.model_key] = f"Inference: {type(exc).__name__}: {exc}"
+                self.runtime_mgr.load_errors[earthdial_key] = f"Inference: {type(exc).__name__}: {exc}"
 
         # 1. Extract physical observables from the actual image file
         img_stats = {}
@@ -584,7 +587,7 @@ class SingleImageVQATool(ToolBase):
                 "region": b_vessel,
             })
 
-        checkpoint_dir = self.runtime_mgr.get_checkpoint_dir("earthdial-4b")
+        checkpoint_dir = self.runtime_mgr.get_checkpoint_dir(earthdial_key)
         has_trained_weights = checkpoint_dir is not None
 
         return ToolOutput(
@@ -599,6 +602,7 @@ class SingleImageVQATool(ToolBase):
             parameters_used=clean_params,
             metadata={
                 "modality": modality,
+                "earthdial_model_key": earthdial_key,
                 "confidence_basis": confidence_basis,
                 "slot": "S1",
                 "fine_tuned_weights_present": has_trained_weights,

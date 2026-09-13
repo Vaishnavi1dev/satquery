@@ -234,19 +234,19 @@ export default function EvidenceViewer({ result, slotImages, sessionId }) {
           <img
             src={evidenceUrl}
             alt="Visual Evidence Overlay"
-            style={{ maxWidth: '100%', maxHeight: '420px', width: 'auto', height: '100%', objectFit: 'contain' }}
+            style={{ maxWidth: '100%', maxHeight: '520px', width: 'auto', height: 'auto', objectFit: 'contain' }}
           />
         ) : activeTab !== 'evidence' && slotImages?.[activeTab]?.thumbnail_base64 ? (
           <img
             src={slotImages[activeTab].thumbnail_base64}
             alt={slotImages[activeTab].filename}
-            style={{ maxWidth: '100%', maxHeight: '420px', width: 'auto', height: '100%', objectFit: 'contain' }}
+            style={{ maxWidth: '100%', maxHeight: '520px', width: 'auto', height: 'auto', objectFit: 'contain' }}
           />
         ) : availableSlots.length > 0 && availableSlots[0][1]?.thumbnail_base64 ? (
           <img
             src={availableSlots[0][1].thumbnail_base64}
             alt={availableSlots[0][1].filename}
-            style={{ maxWidth: '100%', maxHeight: '420px', width: 'auto', height: '100%', objectFit: 'contain' }}
+            style={{ maxWidth: '100%', maxHeight: '520px', width: 'auto', height: 'auto', objectFit: 'contain' }}
           />
         ) : (
           <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
@@ -255,6 +255,13 @@ export default function EvidenceViewer({ result, slotImages, sessionId }) {
           </div>
         )}
 
+        {/* Text-only caption tasks intentionally have no localization boxes */}
+        {!['spectral', 'map', 'slider'].includes(activeTab) &&
+          (result.task === 'caption' || (boxes.length === 0 && temporalEvents.length === 0)) && (
+            <div className="evidence-caption-note">
+              Captioning is text-only — no localization overlay for this task.
+            </div>
+          )}
         {/* Interactive SVG Focus Highlight Overlay */}
         {!['spectral', 'map', 'slider'].includes(activeTab) && activeHighlightBox && (() => {
           const isFusionSplit = activeTab === 'evidence' && (
