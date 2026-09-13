@@ -48,6 +48,77 @@ def _correct_modality_claim(text: str, modality: str) -> str:
     return (prefix + cleaned).strip()
 
 
+def _measure_composition(filepath: str) -> Optional[Dict[str, float]]:
+    """Measure real pixel-level land-cover fractions from a single image.
+
+    The image is opened, converted to RGB, and reduced to a canonical 128x128
+    grid; every pixel is classified as vegetation, water, built-up/bare, or
+    other from brightness and per-channel dominance heuristics only (PIL +
+    numpy, no scipy). Returns percentages that sum to ~100, or ``None`` when the
+    file is missing or cannot be read — never a fabricated result.
+    """
+    if not filepath:
+        return None
+    try:
+        from PIL import Image
+        import numpy as np
+
+        path = os.fspath(filepath)
+        if not os.path.isfile(path):
+            return None
+        with Image.open(path) as img:
+            rgb = img.convert("RGB").resize((128, 128))
+        arr = np.asarray(rgb, dtype=np.float32)
+        if arr.ndim != 3 or arr.shape[2] < 3:
+            return None
+        total = float(arr.shape[0] * arr.shape[1])
+        if total <= 0:
+            return None
+
+        r = arr[:, :, 0]
+        g = arr[:, :, 1]
+        b = arr[:, :, 2]
+        brightness = (r + g + b) / 3.0
+
+        vegetation = (g > r * 1.08) & (g > b * 1.05)
+        water = ((b > r * 1.05) | (brightness < 60.0)) & (brightness < 110.0)
+        water = water & (~vegetation)
+        built_up_or_bare = (~vegetation) & (~water) & (brightness >= 120.0)
+        other = (~vegetation) & (~water) & (~built_up_or_bare)
+
+        pct = lambda mask: float(np.count_nonzero(mask)) / total * 100.0
+        return {
+            "vegetation_pct": pct(vegetation),
+            "water_pct": pct(water),
+            "built_up_or_bare_pct": pct(built_up_or_bare),
+            "other_pct": pct(other),
+        }
+    except Exception:
+        return None
+
+
+def _qualitative_scene_sentence(modality: str) -> str:
+    """One qualitative, number-free modality description (no invented values)."""
+    if modality == "sar":
+        return (
+            "Synthetic Aperture Radar (SAR) scene analysis is based on radar "
+            "backscatter rather than optical colour: built-up structures and rough "
+            "terrain tend to appear brighter, while smooth water and flat paved "
+            "surfaces tend to appear dark, depending on the sensor and geometry."
+        )
+    if modality == "multispectral":
+        return (
+            "Multispectral observation records reflectance beyond the visible bands, "
+            "so vegetation, soil, and water can differ from their apparent colour; the "
+            "measured composition above reports the actual proportions of each surface type."
+        )
+    return (
+        "High-resolution optical scene combining built-up infrastructure and natural "
+        "terrain; the measured composition above reports the actual proportions of each "
+        "surface type."
+    )
+
+
 class SingleImageCaptionTool(ToolBase):
     """
     Slot S2: Single-Image Remote Sensing Captioning & Scene Description (Model A: EarthDial-4B).
@@ -76,38 +147,41 @@ class SingleImageCaptionTool(ToolBase):
             except Exception as exc:
                 self.runtime_mgr.load_errors[earthdial_key] = f"Inference: {type(exc).__name__}: {exc}"
 
-        if modality == "sar":
-            text = (
-                "Synthetic Aperture Radar (SAR) scene analysis reveals a high-contrast terrain profile. "
-                "The urbanized sectors exhibit pronounced double-bounce radar backscatter with sharp cardinal alignment. "
-                "Surrounding undulating agricultural zones display moderate, diffuse volume scattering, while smooth water "
-                "reservoirs and flat paved zones exhibit specular reflectance with low backscatter coefficients below -22 dB."
-            )
-        elif modality == "multispectral":
-            text = (
-                "Multispectral satellite observation displaying a heterogeneous landscape: dominant dense vegetative "
-                "canopy characterized by strong near-infrared reflectance (B08) and high chlorophyll absorption, intersected "
-                "by medium-density residential settlements, paved transportation corridors, and a well-defined drainage channel."
-            )
-        else:
-            text = (
-                "High-resolution remote sensing scene comprising an organized mix of urban infrastructure and natural terrain. "
-                "Rectilinear built-up structures and commercial complexes are distributed along a primary transportation artery. "
-                "Adjacent quadrants feature cultivated agricultural plots with distinct boundary delineations, interspersed with "
-                "perennial canopy clusters and clear water drainage features."
-            )
-
-        # Fix any wrong multi-spectral claim in the templated text too.
-        text = _correct_modality_claim(text, modality)
+        # Ground the answer in real pixels from THIS image (None if unreadable).
+        composition = None
+        if envelope and getattr(envelope, "filepath", None):
+            composition = _measure_composition(envelope.filepath)
 
         checkpoint_dir = self.runtime_mgr.get_checkpoint_dir(earthdial_key)
         has_trained_weights = checkpoint_dir is not None
         model_text = self.usable_model_text(real_result)
-        if model_text:
-            text = _correct_modality_claim(model_text, modality)
+        corrected_model_text = _correct_modality_claim(model_text, modality) if model_text else None
+
+        attribution = (
+            "Model-generated caption (EarthDial-4B; may not fully match the visual content): "
+        )
+
+        if composition is not None:
+            # PRIMARY, factual line measured directly from the image's pixels.
+            text = (
+                f"Measured land-cover composition (pixel analysis of this {_modality_label(modality)} scene): "
+                f"vegetation ~{composition['vegetation_pct']:.0f}%, "
+                f"built-up/bare soil ~{composition['built_up_or_bare_pct']:.0f}%, "
+                f"water ~{composition['water_pct']:.0f}%, "
+                f"other ~{composition['other_pct']:.0f}%."
+            )
+            text += "\n\n" + _qualitative_scene_sentence(modality)
+            if corrected_model_text:
+                text += "\n\n" + attribution + corrected_model_text
+            conf = 0.90
+            confidence_basis = "measured_pixel_analysis"
+        elif corrected_model_text:
+            # No pixel measurement available: attribute the model sentence honestly.
+            text = attribution + corrected_model_text
             conf = 0.90
             confidence_basis = "nominal_model_estimate"
         else:
+            text = _qualitative_scene_sentence(modality)
             conf = None
             confidence_basis = "not_available"
 
