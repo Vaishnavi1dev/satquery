@@ -12,6 +12,7 @@ from app.data.pair_validator import PairValidator, ValidationError
 from app.registry.store import ToolRegistryStore
 from app.runtime.manager import ModelRuntimeManager
 from app.agent.controller import AgentController, QueryExecutionResult
+from app.agent.classifier import TaskClassifier
 
 
 from app.data.preprocessing import PreprocessingService
@@ -65,6 +66,7 @@ class ValidateRequest(BaseModel):
     session_id: str
     image_ids: List[str]
     task: Optional[str] = None
+    query: Optional[str] = None
 
 
 class SpectralIndexRequest(BaseModel):
@@ -166,24 +168,41 @@ def validate_inputs(req: ValidateRequest):
     if not envelopes:
         return {"valid": False, "error_code": "VAL_NO_INPUT_IMAGES", "message": "No images provided for validation."}
 
+    # Count-based modality pairing sanity check (unchanged behavior).
+    def _check_pairing():
+        if len(envelopes) == 1:
+            PairValidator.validate_single(envelopes[0])
+            return "single"
+        elif len(envelopes) == 2:
+            # Test cross-modal or bi-temporal
+            try:
+                PairValidator.validate_cross_modal_pair(envelopes[0], envelopes[1])
+                return "cross_modal_opt_sar"
+            except ValidationError:
+                PairValidator.validate_bi_temporal_pair(envelopes[0], envelopes[1])
+                return "bi_temporal"
+        return None
+
     try:
+        if req.query and req.query.strip():
+            # Query-aware validation: classify intent independent of image count and
+            # enforce the task's observation requirements in addition to pairing.
+            from app.agent.validator import AgentInputValidator
+            task, _ = TaskClassifier.classify(req.query, envelopes)
+            AgentInputValidator.validate(task, envelopes)
+            pair_type = _check_pairing()
+            result = {"valid": True, "task": task, "images_checked": len(envelopes)}
+            if pair_type:
+                result["pair_type"] = pair_type
+            return result
         if req.task:
             from app.agent.validator import AgentInputValidator
             AgentInputValidator.validate(req.task, envelopes)
             return {"valid": True, "task": req.task, "images_checked": len(envelopes)}
         else:
-            # Auto-detect pairing
-            if len(envelopes) == 1:
-                PairValidator.validate_single(envelopes[0])
-                return {"valid": True, "pair_type": "single"}
-            elif len(envelopes) == 2:
-                # Test cross-modal or bi-temporal
-                try:
-                    PairValidator.validate_cross_modal_pair(envelopes[0], envelopes[1])
-                    return {"valid": True, "pair_type": "cross_modal_opt_sar"}
-                except ValidationError:
-                    PairValidator.validate_bi_temporal_pair(envelopes[0], envelopes[1])
-                    return {"valid": True, "pair_type": "bi_temporal"}
+            pair_type = _check_pairing()
+            if pair_type:
+                return {"valid": True, "pair_type": pair_type}
     except ValidationError as ve:
         return {"valid": False, "error_code": ve.code, "message": ve.message}
 

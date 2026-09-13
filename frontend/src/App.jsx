@@ -99,23 +99,28 @@ export default function App() {
     init();
   }, []);
 
-  // Auto-validate whenever active images or query change
+  // Auto-validate whenever active images or the query change (query changes debounced)
   useEffect(() => {
+    let cancelled = false;
     async function runValidation() {
       if (sessionId && uploadedImages.length > 0) {
         try {
           const imageIds = uploadedImages.map((img) => img.image_id);
-          const valRes = await api.validateInputs(sessionId, imageIds);
-          setValidationResult(valRes);
+          const valRes = await api.validateInputs(sessionId, imageIds, null, query.trim() || null);
+          if (!cancelled) setValidationResult(valRes);
         } catch (err) {
-          setValidationResult({ valid: false, message: err.message });
+          if (!cancelled) setValidationResult({ valid: false, message: err.message });
         }
       } else {
         setValidationResult(null);
       }
     }
-    runValidation();
-  }, [sessionId, uploadedImages]);
+    const handle = setTimeout(runValidation, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [sessionId, uploadedImages, query]);
 
   // Upload multiple files
   const handleUploadFiles = async (files) => {
@@ -160,6 +165,7 @@ export default function App() {
   // Execution Handler
   const handleExecute = async () => {
     if (uploadedImages.length === 0 || !query.trim() || isExecuting) return;
+    if (validationResult && validationResult.valid === false) return;
 
     try {
       setIsExecuting(true);
@@ -175,6 +181,9 @@ export default function App() {
       }, 150);
     } catch (err) {
       setErrorMessage(`Execution error: ${err.message}`);
+      if (err.status === 422) {
+        setValidationResult({ valid: false, message: err.message });
+      }
     } finally {
       setIsExecuting(false);
       setSystemStatus('ONLINE');

@@ -21,8 +21,7 @@ class AgentInputValidator:
             if len(images) < 2:
                 raise ValidationError(
                     "VAL_INVALID_INPUT_COUNT",
-                    f"Task '{task}' (bi-temporal change analysis) requires exactly 2 observations (T1 and T2). "
-                    f"Provided: {len(images)} image."
+                    f"This query requires a bi-temporal pair (2 images). Provided: {len(images)} image."
                 )
             PairValidator.validate_bi_temporal_pair(images[0], images[1])
 
@@ -30,8 +29,7 @@ class AgentInputValidator:
             if len(images) < 3:
                 raise ValidationError(
                     "VAL_INVALID_INPUT_COUNT",
-                    f"Task '{task}' (multi-temporal sequence analysis) requires at least 3 sequential epochs (T1...TN). "
-                    f"Provided: {len(images)} images."
+                    f"This query requires at least 3 sequential epochs (T1…TN). Provided: {len(images)} image."
                 )
             PairValidator.validate_temporal_sequence(images)
 
@@ -39,7 +37,6 @@ class AgentInputValidator:
             if len(images) < 2:
                 raise ValidationError(
                     "VAL_INVALID_INPUT_COUNT",
-                    f"Task '{task}' (cross-modal optical-SAR joint analysis) requires 2 co-registered images "
-                    f"(one Optical/Multispectral and one SAR). Provided: {len(images)} image."
+                    f"This query requires cross-modal optical + SAR pairing (2 images). Provided: {len(images)} image."
                 )
             PairValidator.validate_cross_modal_pair(images[0], images[1])

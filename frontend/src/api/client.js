@@ -20,7 +20,9 @@ async function handleResponse(res) {
     } catch {
       errorDetail = `HTTP ${res.status}: ${res.statusText}`;
     }
-    throw new Error(errorDetail);
+    const error = new Error(errorDetail);
+    error.status = res.status;
+    throw error;
   }
   return res.json();
 }
@@ -73,7 +75,7 @@ export const api = {
     return handleResponse(res);
   },
 
-  async validateInputs(sessionId, imageIds, task = null) {
+  async validateInputs(sessionId, imageIds, task = null, query = null) {
     const res = await fetch(`${BASE_URL}/api/validate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -81,6 +83,7 @@ export const api = {
         session_id: sessionId,
         image_ids: imageIds,
         task: task || undefined,
+        query: query || undefined,
       }),
     });
     return handleResponse(res);
