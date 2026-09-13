@@ -8,7 +8,8 @@ import {
   ArrowRight,
   CheckCircle2,
   TrendingUp,
-  Sparkles
+  Sparkles,
+  Satellite
 } from 'lucide-react';
 
 export default function HomePage({ onNavigateToAsk }) {
@@ -72,6 +73,18 @@ export default function HomePage({ onNavigateToAsk }) {
       bg: 'rgba(6, 182, 212, 0.12)',
       border: 'rgba(6, 182, 212, 0.3)',
       icon: Cpu,
+    },
+    {
+      id: 'earthdial-ms',
+      name: 'EarthDial-4B MS/SAR',
+      role: 'Multispectral & SAR Specialist',
+      modality: 'Sentinel-2 MSI / Sentinel-1 SAR',
+      resolution: '512x512 per Scene',
+      capabilities: ['Multispectral Scene Understanding', 'SAR Backscatter Description'],
+      color: 'var(--sar-color)',
+      bg: 'var(--sar-bg)',
+      border: 'var(--sar-border)',
+      icon: Satellite,
     },
   ];
 
@@ -158,7 +171,7 @@ export default function HomePage({ onNavigateToAsk }) {
         }}>
           <div style={{ flex: '1 1 auto', textAlign: 'center', minWidth: '140px' }}>
             <div style={{ fontSize: '1.65rem', fontWeight: 800, color: 'var(--cyan-400)', fontFamily: 'var(--font-mono)' }}>6 Tool Adapters</div>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>3 Model Checkpoints</div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>4 Model Checkpoints</div>
           </div>
           <div style={{ flex: '1.4 1 auto', textAlign: 'center', minWidth: '240px' }}>
             <div style={{ fontSize: '1.45rem', fontWeight: 800, color: 'var(--msi-color)', fontFamily: 'var(--font-mono)' }}>Optical / SAR</div>
