@@ -19,10 +19,32 @@ export default function EvidenceViewer({ result, slotImages, sessionId }) {
   const availableSlots = Object.entries(slotImages || {}).filter(([_, env]) => !!env);
   const primaryEnv = availableSlots.length > 0 ? availableSlots[0][1] : null;
 
-  // Find candidate image for spectral index calculation (prefer multispectral, then optical)
-  const spectralSlot = availableSlots.find(([_, env]) => env.modality === 'multispectral')
-    || availableSlots.find(([_, env]) => env.modality === 'optical')
-    || availableSlots[0];
+  // Genuine multispectral detection: modality flag or >=4 bands (band_count preferred, then bands)
+  const getBandCount = (env) => {
+    const parsed = Number(env?.band_count ?? env?.bands);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  const isMultispectralEnvelope = (env) => {
+    if (!env) return false;
+    if (env.modality === 'multispectral') return true;
+    const bandCount = getBandCount(env);
+    return bandCount !== null && bandCount >= 4;
+  };
+  // Georeferenced only when real bounds/CRS/GeoTIFF tags exist (no fabricated defaults)
+  const isGeoreferencedEnvelope = (env) => {
+    if (!env) return false;
+    if (env.tags?.geotiff) return true;
+    const b = env.bounds || env.geo_bbox;
+    if (Array.isArray(b) && b.length === 4) return true;
+    return env.crs != null && env.crs !== '';
+  };
+
+  // Spectral tab is only valid when the PRIMARY image is genuinely multispectral
+  const primaryIsMultispectral = isMultispectralEnvelope(primaryEnv);
+  const primaryIsGeoreferenced = isGeoreferencedEnvelope(primaryEnv);
+
+  // Candidate image for spectral index calculation (multispectral scenes only)
+  const spectralSlot = availableSlots.find(([_, env]) => isMultispectralEnvelope(env)) || availableSlots[0];
   const spectralCandidateImageId = spectralSlot ? (spectralSlot[1].image_id || spectralSlot[0]) : null;
   const spectralCandidateThumb = spectralSlot ? spectralSlot[1].thumbnail_base64 : null;
 
@@ -99,7 +121,7 @@ export default function EvidenceViewer({ result, slotImages, sessionId }) {
           )}
 
           {/* Spectral Index Calculation Tab (NDVI / NDWI) */}
-          {spectralCandidateImageId && (
+          {spectralCandidateImageId && primaryIsMultispectral && (
             <button
               className={`btn btn-sm ${activeTab === 'spectral' ? 'btn-primary' : 'btn-ghost'}`}
               onClick={() => {
@@ -107,26 +129,37 @@ export default function EvidenceViewer({ result, slotImages, sessionId }) {
                 setSelectedEvidenceIndex(null);
               }}
               style={{ color: activeTab === 'spectral' ? undefined : '#10b981', border: '1px solid rgba(16, 185, 129, 0.35)' }}
-              title="Compute real-time NDVI & NDWI vegetation and water indices"
+              title="NDVI/NDWI (requires ≥4-band input; NIR is approximated for RGB)"
             >
               <Activity size={13} />
               <span>Spectral (NDVI/NDWI)</span>
             </button>
           )}
 
-          {/* Interactive GIS Satellite Map Tab */}
-          <button
-            className={`btn btn-sm ${activeTab === 'map' ? 'btn-primary' : 'btn-ghost'}`}
-            onClick={() => {
-              setActiveTab('map');
-              setSelectedEvidenceIndex(null);
-            }}
-            style={{ color: activeTab === 'map' ? undefined : '#06b6d4', border: '1px solid rgba(6, 182, 212, 0.35)' }}
-            title="Interactive Esri World Imagery & OpenStreetMap GIS Basemap with WGS84 GeoJSON"
-          >
-            <Map size={13} />
-            <span>GIS Map View</span>
-          </button>
+          {/* Interactive GIS Satellite Map Tab (only for genuinely georeferenced inputs) */}
+          {primaryIsGeoreferenced ? (
+            <button
+              className={`btn btn-sm ${activeTab === 'map' ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => {
+                setActiveTab('map');
+                setSelectedEvidenceIndex(null);
+              }}
+              style={{ color: activeTab === 'map' ? undefined : '#06b6d4', border: '1px solid rgba(6, 182, 212, 0.35)' }}
+              title="Interactive Esri World Imagery & OpenStreetMap GIS Basemap with real image bounds/CRS"
+            >
+              <Map size={13} />
+              <span>GIS Map View</span>
+            </button>
+          ) : (
+            <span
+              className="tag-pill"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', color: 'var(--text-muted)', border: '1px solid var(--border-subtle)', fontSize: '0.72rem' }}
+              title="The primary image has no real bounds or CRS, so a GIS map cannot be shown."
+            >
+              <Map size={12} />
+              <span>Not georeferenced — no map</span>
+            </span>
+          )}
 
           {availableSlots.map(([slotId, env], i) => (
             <button
@@ -186,6 +219,7 @@ export default function EvidenceViewer({ result, slotImages, sessionId }) {
               sessionId={sessionId}
               activeImageId={spectralCandidateImageId}
               originalThumbnail={spectralCandidateThumb}
+              isMultispectral={primaryIsMultispectral}
             />
           </div>
         ) : activeTab === 'map' ? (

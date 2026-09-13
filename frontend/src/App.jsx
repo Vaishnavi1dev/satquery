@@ -22,6 +22,12 @@ const DEMO_CASES = {
       ['/sample_imagery/pair_00000_sar.jpg', 'demo_sar_scene.jpg'],
     ],
   },
+  single: {
+    query: 'Describe the land-cover and major visible objects in this image.',
+    files: [
+      ['/sample_imagery/pair_00000_optical.jpg', 'demo_optical_scene.jpg'],
+    ],
+  },
   change: {
     query: 'What changed between these two dates, and where did the change occur?',
     files: [
@@ -273,13 +279,7 @@ export default function App() {
 
         {/* View 1: Home Page */}
         {activeTab === 'home' && (
-          <HomePage
-            onNavigateToAsk={() => handleSelectTab('ask')}
-            onLaunchDemo={(presetId) => {
-              handleSelectTab('ask');
-              handleLoadDemo(presetId);
-            }}
-          />
+          <HomePage onNavigateToAsk={() => handleSelectTab('ask')} />
         )}
 
         {/* View 3: Ask SatQuery Workspace */}
@@ -328,7 +328,7 @@ export default function App() {
                   }}
                 />
                 <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.45 }}>
-                  Autonomous Multimodal Remote Sensing Assistant. Ingest optical, multi-spectral (MSI), SAR radar backscatter, and multi-epoch temporal telemetry. The agent autonomously classifies, validates, and routes queries to specialized foundation models.
+                  Autonomous Multimodal Remote Sensing Assistant. Ingest optical, optional multi-band, and SAR inputs plus multi-epoch sequences. The agent classifies the query and routes it to the appropriate specialist model.
                 </p>
               </div>
             </section>
@@ -361,6 +361,32 @@ export default function App() {
               />
             </div>
 
+            {/* Bundled Demo Samples */}
+            <div className="glass-panel" style={{ marginTop: '0.75rem', padding: '0.85rem 1rem', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Demo Samples
+              </span>
+              {[
+                ['single', 'Single Optical'],
+                ['cross_modal', 'Optical + SAR'],
+                ['change', 'Change (T1/T2)'],
+                ['sequence', 'Sequence (T1-T3)'],
+              ].map(([presetId, label]) => (
+                <button
+                  key={presetId}
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => handleLoadDemo(presetId)}
+                  disabled={isUploading || isExecuting || !sessionId}
+                >
+                  {label}
+                </button>
+              ))}
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                Bundled benchmark samples (not scenario imagery)
+              </span>
+            </div>
+
             {/* 5 Pillars Intelligence Dashboard */}
             {executionResult && (
               <div ref={resultsRef} className="intelligence-dashboard" id="results-section">
@@ -370,13 +396,11 @@ export default function App() {
                       5-Pillars Evidence-Backed Intelligence Dashboard
                     </h2>
                     <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-                      Calibrated, auditable, and multimodal evidence synthesized for ISRO PS 26167.
+                      Auditable, multimodal evidence synthesized for ISRO PS 26167.
                     </p>
                   </div>
 
-                  <span className="tag-pill" style={{ color: 'var(--success)', background: 'var(--success-glow)' }}>
-                    AUDITED & VERIFIED
-                  </span>
+
                 </div>
 
                 {/* Pillar 1: Synthesized Answer */}

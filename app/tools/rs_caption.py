@@ -33,14 +33,12 @@ class SingleImageCaptionTool(ToolBase):
                 "Surrounding undulating agricultural zones display moderate, diffuse volume scattering, while smooth water "
                 "reservoirs and flat paved zones exhibit specular reflectance with low backscatter coefficients below -22 dB."
             )
-            conf = 0.93
         elif modality == "multispectral":
             text = (
                 "Multispectral satellite observation displaying a heterogeneous landscape: dominant dense vegetative "
                 "canopy characterized by strong near-infrared reflectance (B08) and high chlorophyll absorption, intersected "
                 "by medium-density residential settlements, paved transportation corridors, and a well-defined drainage channel."
             )
-            conf = 0.94
         else:
             text = (
                 "High-resolution remote sensing scene comprising an organized mix of urban infrastructure and natural terrain. "
@@ -48,26 +46,30 @@ class SingleImageCaptionTool(ToolBase):
                 "Adjacent quadrants feature cultivated agricultural plots with distinct boundary delineations, interspersed with "
                 "perennial canopy clusters and clear water drainage features."
             )
-            conf = 0.95
 
         checkpoint_dir = self.runtime_mgr.get_checkpoint_dir("earthdial-4b")
         has_trained_weights = checkpoint_dir is not None
         if real_result and real_result.get("text"):
             text = real_result["text"]
             conf = 0.90
+            confidence_basis = "nominal_model_estimate"
+        else:
+            conf = None
+            confidence_basis = "not_available"
 
         return ToolOutput(
             tool_name=self.name,
             model_name=self.model_name,
             text=text,
             boxes=None,
-            confidence=round(conf, 3),
+            confidence=round(conf, 3) if conf is not None else None,
             evidence_type="analysed_image",
             evidence_ptr=envelope.image_id if envelope else None,
             evidence=[],  # Requirement 2: Captioning produces no explicit localization; mark unavailable instead of fabricating
             parameters_used=clean_params,
             metadata={
                 "modality": modality,
+                "confidence_basis": confidence_basis,
                 "slot": "S2",
                 "evidence_status": "unavailable",
                 "fine_tuned_weights_present": has_trained_weights,

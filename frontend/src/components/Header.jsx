@@ -1,5 +1,5 @@
 import React from 'react';
-import { Satellite, History, RotateCcw, ExternalLink } from 'lucide-react';
+import { Satellite, History, RotateCcw } from 'lucide-react';
 
 export default function Header({ 
   sessionId, 
@@ -47,7 +47,7 @@ export default function Header({
         <div className="system-status-indicator">
           <div className={`status-dot ${systemStatus === 'ONLINE' ? 'online' : systemStatus === 'BUSY' ? 'busy' : 'offline'}`} />
           <span className="mono" style={{ fontSize: '0.72rem' }}>
-            {systemStatus === 'ONLINE' ? 'BACKEND READY' : systemStatus === 'BUSY' ? 'PROCESSING' : 'DISCONNECTED'}
+            {systemStatus === 'ONLINE' ? 'API REACHABLE' : systemStatus === 'BUSY' ? 'PROCESSING' : 'DISCONNECTED'}
           </span>
         </div>
 

@@ -15,59 +15,13 @@ export default function TraceTimeline({ result }) {
   const phaseOrder = ['InputValidation', 'TaskIdentification', 'ModelSelection', 'Execution', 'EvidenceCollection', 'FinalResult'];
 
   const phaseLabels = {
-    InputValidation: '1. Input Compatibility & Coordinate Validation',
+    InputValidation: '1. Input Compatibility Validation',
     TaskIdentification: '2. Task Identification & Query Decomposition',
-    ModelSelection: '3. Model Selection & Workflow Graph Planning',
+    ModelSelection: '3. Model Selection & Linear Step Planning',
     Execution: '4. Specialist Model Inference Execution',
     EvidenceCollection: '5. Evidence Collection & Multi-Model Fusion',
     FinalResult: '6. Final Result Synthesis & Audit Reporting'
   };
-
-  const fallbackSteps = [
-    {
-      step_name: 'InputValidation',
-      status: 'COMPLETED',
-      tool_name: 'AgentInputValidator',
-      duration_ms: 12,
-      details: { checks: 'Modality pairing verified, CRS checked, dimensions within tolerance' }
-    },
-    {
-      step_name: 'TaskIdentification',
-      status: 'COMPLETED',
-      tool_name: 'TaskClassifier',
-      duration_ms: 24,
-      details: { task: result.task, is_decomposed: result.is_decomposed }
-    },
-    {
-      step_name: 'ModelSelection',
-      status: 'COMPLETED',
-      tool_name: 'ExecutionPlanner',
-      duration_ms: 18,
-      details: { model: result.selected_model, tool: result.selected_tool }
-    },
-    {
-      step_name: 'Execution',
-      status: 'COMPLETED',
-      tool_name: result.selected_tool,
-      model_name: result.selected_model,
-      duration_ms: result.duration_ms ? result.duration_ms * 0.7 : 450,
-      details: { subtasks_run: result.subtasks?.length || 1 }
-    },
-    {
-      step_name: 'EvidenceCollection',
-      status: 'COMPLETED',
-      tool_name: 'OutputAggregator',
-      duration_ms: 22,
-      details: { evidence_count: result.evidence?.length || 0, confidence: result.confidence }
-    },
-    {
-      step_name: 'FinalResult',
-      status: 'COMPLETED',
-      tool_name: 'ReportGenerator',
-      duration_ms: 35,
-      details: { report_path: result.report_url || 'report.html', evidence_url: result.evidence_url }
-    }
-  ];
 
   const groupedSteps = phaseOrder
     .map((phase) => {
@@ -108,7 +62,8 @@ export default function TraceTimeline({ result }) {
     })
     .filter(Boolean);
 
-  const displaySteps = groupedSteps.length > 0 ? groupedSteps : fallbackSteps;
+  const displaySteps = groupedSteps;
+
   return (
     <div className="pillar-trace-card glass-panel">
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
@@ -146,6 +101,11 @@ export default function TraceTimeline({ result }) {
 
       {/* Step by Step Timeline */}
       <div className="trace-timeline" style={{ marginTop: '0.75rem' }}>
+        {displaySteps.length === 0 && (
+          <div className="mono" style={{ fontSize: '0.78rem', color: 'var(--text-muted)', padding: '0.5rem 0' }}>
+            No execution trace recorded.
+          </div>
+        )}
         {displaySteps.map((step, idx) => {
           const title = phaseLabels[step.step_name] || step.step_name;
           return (

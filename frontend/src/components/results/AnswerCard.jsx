@@ -21,7 +21,7 @@ export default function AnswerCard({ result }) {
     <div className="pillar-answer-card glass-panel">
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
         <div className="pillar-header-badge tag-pill" style={{ background: 'rgba(6, 182, 212, 0.15)', color: 'var(--cyan-400)' }}>
-          PILLAR 1 • EVIDENCE-BACKED SYNTHESIS & MULTI-MODEL FUSION
+          PILLAR 1 • EVIDENCE-BACKED SYNTHESIS & {result.is_decomposed ? 'MULTI-MODEL COMPOSITION' : 'SPECIALIST SYNTHESIS'}
         </div>
 
         {result.is_decomposed && (
@@ -52,7 +52,7 @@ export default function AnswerCard({ result }) {
             <span>Uncertainty & Multi-Model Discrepancy Flag</span>
           </div>
           <div style={{ fontSize: '0.8rem', color: '#fef3c7', lineHeight: 1.4 }}>
-            {result.uncertainty_explanation || 'Discrepancy or ambiguous sensor features observed between specialist predictions. Honest uncertainty bounds active; manual analyst audit recommended.'}
+            {result.uncertainty_explanation || 'Discrepancy or ambiguous sensor features observed between specialist predictions. Confidence threshold flag active (fixed threshold); manual analyst audit recommended.'}
           </div>
         </div>
       )}
@@ -98,7 +98,7 @@ export default function AnswerCard({ result }) {
         <div className="model-attribution">
           <div className="specialist-badge">
             <Bot size={15} />
-            <span>Specialist: {result.selected_model || result.selected_tool || 'EarthDial-4B'}</span>
+            <span>Specialist: {result.selected_model || result.selected_tool || 'unknown'}</span>
           </div>
 
           {result.task && (

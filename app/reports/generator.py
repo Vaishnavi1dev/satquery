@@ -183,9 +183,6 @@ REPORT_TEMPLATE = """
         .print-btn:hover {
             background: #0369a1;
         }
-        .classification-header {
-            display: none;
-        }
         @media print {
             body {
                 background-color: #ffffff !important;
@@ -197,18 +194,6 @@ REPORT_TEMPLATE = """
             }
             .no-print {
                 display: none !important;
-            }
-            .classification-header {
-                display: block !important;
-                text-align: center;
-                font-size: 11px;
-                font-weight: 800;
-                letter-spacing: 2px;
-                color: #b91c1c;
-                padding: 4px;
-                border-top: 1px solid #b91c1c;
-                border-bottom: 1px solid #b91c1c;
-                margin-bottom: 15px;
             }
             .card {
                 background: #ffffff !important;
@@ -267,18 +252,15 @@ REPORT_TEMPLATE = """
 </head>
 <body>
     <div class="container">
-        <div class="classification-header">
-            CONFIDENTIAL // ISRO PS 26167 REMOTE SENSING INTELLIGENCE DOSSIER // FOR OFFICIAL USE ONLY
-        </div>
         <div class="no-print" style="margin-bottom: 15px; display: flex; justify-content: flex-end; gap: 10px;">
             <button onclick="window.print()" class="print-btn">
-                🖨️ Print / Save PDF Mission Dossier
+                🖨️ Print / Save PDF
             </button>
         </div>
         <div class="header">
             <div>
                 <h1 class="title">SatQuery AI - Analysis Report</h1>
-                <div class="subtitle">SIH 2026 Problem Statement 26167 | ISRO / Department of Space</div>
+                <div class="subtitle">Evidence-grounded remote sensing analysis</div>
             </div>
             <div class="badge">{{ trace_view.status }}</div>
         </div>

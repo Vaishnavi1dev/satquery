@@ -124,8 +124,54 @@ def test_dofa_pair_data_preparation():
             assert "<image_sar>" in r["conversations"][0]["value"]
 
 
-def test_optical_sar_fusion_tool_integration():
-    """Verify opt-sar-fusion tool executes and populates Model B provenance."""
+
+def _write_fusion_images(tmp_path, opt_variant=0, sar_variant=0):
+    """Create small deterministic optical/SAR PNGs so real pixel analysis runs."""
+    import numpy as np
+    from PIL import Image
+
+    size = 96
+    opt_arr = np.zeros((size, size, 3), dtype=np.uint8)
+    opt_arr[:, :] = (40, 150, 40)  # vegetation
+    if opt_variant % 2 == 0:
+        opt_arr[0:size // 5, :] = (225, 225, 225)  # built-up
+    else:
+        opt_arr[size // 5:size // 2, :] = (225, 225, 225)
+    opt_arr[(size * 70) // 96:, :] = (25, 50, 170)  # water
+    opt_path = tmp_path / "opt_real.png"
+    Image.fromarray(opt_arr).save(opt_path)
+
+    sar_arr = np.full((size, size), 20, dtype=np.uint8)
+    band = 200
+    if sar_variant % 2 == 0:
+        sar_arr[0:size // 5, :] = band
+    else:
+        sar_arr[size // 5:size // 2, :] = band
+    sar_path = tmp_path / "sar_real.png"
+    Image.fromarray(sar_arr, mode="L").save(sar_path)
+    return str(opt_path), str(sar_path)
+
+
+def _make_fusion_envelope(image_id, modality, filepath):
+    return ImageMetadataEnvelope(
+        image_id=image_id,
+        session_id="test_sess",
+        filepath=filepath,
+        filename=os.path.basename(filepath),
+        sha256=("a" if modality == "optical" else "b") * 64,
+        file_size_bytes=os.path.getsize(filepath) if os.path.exists(filepath) else 1024,
+        modality=modality,
+        width=96,
+        height=96,
+        bands=3 if modality == "optical" else 1,
+        dtype="uint8",
+        is_georeferenced=False,
+        crs=None,
+        bounds=None,
+    )
+
+
+def _fusion_tool():
     mgr = ModelRuntimeManager()
     descriptor = {
         "name": "opt-sar-fusion",
@@ -134,40 +180,16 @@ def test_optical_sar_fusion_tool_integration():
         "slot": "S4",
         "load_group": "encoder"
     }
-    tool = OpticalSARFusionTool(descriptor, mgr)
+    return OpticalSARFusionTool(descriptor, mgr)
 
-    opt_env = ImageMetadataEnvelope(
-        image_id="img_opt_01",
-        session_id="test_sess",
-        filepath="mock_opt.png",
-        filename="img_opt_01.png",
-        sha256="a" * 64,
-        file_size_bytes=1024,
-        modality="optical",
-        width=512,
-        height=512,
-        bands=3,
-        dtype="uint8",
-        is_georeferenced=False,
-        crs=None,
-        bounds=None
-    )
-    sar_env = ImageMetadataEnvelope(
-        image_id="img_sar_01",
-        session_id="test_sess",
-        filepath="mock_sar.png",
-        filename="img_sar_01.png",
-        sha256="b" * 64,
-        file_size_bytes=1024,
-        modality="sar",
-        width=512,
-        height=512,
-        bands=1,
-        dtype="uint8",
-        is_georeferenced=False,
-        crs=None,
-        bounds=None
-    )
+
+def test_optical_sar_fusion_tool_integration(tmp_path):
+    """Verify opt-sar-fusion executes with real imagery and honest provenance."""
+    tool = _fusion_tool()
+
+    opt_path, sar_path = _write_fusion_images(tmp_path, opt_variant=0, sar_variant=0)
+    opt_env = _make_fusion_envelope("img_opt_01", "optical", opt_path)
+    sar_env = _make_fusion_envelope("img_sar_01", "sar", sar_path)
 
     out = tool.invoke(
         inputs={"images": [opt_env, sar_env], "query": "identify built-up and water regions"},
@@ -175,8 +197,41 @@ def test_optical_sar_fusion_tool_integration():
     )
 
     assert out.tool_name == "opt-sar-fusion"
-    assert out.confidence >= 0.90
+    assert out.confidence is None or (isinstance(out.confidence, float) and 0.0 <= out.confidence <= 1.0)
+    assert out.metadata["confidence_basis"] in {
+        "nominal_model_estimate",
+        "measured_pixel_analysis",
+        "not_available",
+    }
+    # Real pixel-derived class fractions must be genuine floats.
+    for key in ("water_coverage_pct", "builtup_coverage_pct", "vegetation_coverage_pct"):
+        assert isinstance(out.metadata[key], float)
+        assert 0.0 <= out.metadata[key] <= 100.0
+    assert out.boxes is not None and len(out.boxes) > 0
+    for box in out.boxes:
+        assert isinstance(box, list) and len(box) == 4
+        assert all(isinstance(c, int) for c in box)
+        assert 0 <= box[0] <= box[2] <= 96
+        assert 0 <= box[1] <= box[3] <= 96
     assert "optical" in [e["type"] for e in out.evidence]
     assert "sar" in [e["type"] for e in out.evidence]
     assert "joint" in [e["type"] for e in out.evidence]
     assert "fine_tuned_fusion_head_present" in out.metadata
+    # No fabricated radar decibel values are synthesized.
+    assert "db" not in out.text.lower()
+    assert "decibel" not in out.text.lower()
+
+    # Unreadable inputs must not silently fabricate numbers either.
+    missing_opt = _make_fusion_envelope("missing_opt", "optical", str(tmp_path / "does_not_exist_opt.png"))
+    missing_sar = _make_fusion_envelope("missing_sar", "sar", str(tmp_path / "does_not_exist_sar.png"))
+    out_missing = tool.invoke(
+        inputs={"images": [missing_opt, missing_sar], "query": "identify built-up and water regions"},
+        parameters={"max_new_tokens": 16}
+    )
+    assert out_missing.confidence is None
+    assert out_missing.boxes is None
+    assert out_missing.metadata["confidence_basis"] == "not_available"
+    for key in ("water_coverage_pct", "builtup_coverage_pct", "vegetation_coverage_pct"):
+        assert out_missing.metadata[key] is None
+    assert "db" not in out_missing.text.lower()
+    assert "decibel" not in out_missing.text.lower()

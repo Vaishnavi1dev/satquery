@@ -1,6 +1,8 @@
 import React from 'react';
 import { Database, ShieldCheck, MapPin, Hash, Ruler } from 'lucide-react';
 
+const hasRealBounds = (env) => Array.isArray(env?.bounds) && env.bounds.length === 4;
+
 export default function ProvenanceCard({ slotImages }) {
   const envelopes = Object.values(slotImages || {}).filter(Boolean);
 
@@ -38,16 +40,22 @@ export default function ProvenanceCard({ slotImages }) {
 
             <div className="provenance-grid">
               <div className="provenance-field">
-                <span className="provenance-field-label">Sensor Platform</span>
+                <span className="provenance-field-label">Platform (inferred from modality)</span>
                 <span className="provenance-field-val">
-                  {env.sensor || (env.modality === 'sar' ? 'Sentinel-1 C-Band SAR' : env.modality === 'multispectral' ? 'Sentinel-2 Multispectral (MSI)' : 'High-Resolution Optical (RGB)')}
+                  {env.sensor
+                    ? env.sensor
+                    : env.modality === 'sar'
+                      ? 'SAR (radar) — platform not provided'
+                      : env.modality === 'multispectral'
+                        ? 'Multispectral (MSI) — platform not provided'
+                        : 'Optical RGB — platform not provided'}
                 </span>
               </div>
 
               <div className="provenance-field">
                 <span className="provenance-field-label">Spatial GSD</span>
                 <span className="provenance-field-val">
-                  {env.resolution_m ? `${env.resolution_m} m/pixel` : '10.0 m (Estimated)'}
+                  {env.resolution_m ? `${env.resolution_m} m/pixel` : 'not provided'}
                 </span>
               </div>
 
@@ -60,7 +68,7 @@ export default function ProvenanceCard({ slotImages }) {
 
               <div className="provenance-field">
                 <span className="provenance-field-label">Coordinate Reference</span>
-                <span className="provenance-field-val">{env.crs || 'EPSG:4326 (WGS 84)'}</span>
+                <span className="provenance-field-val">{env.crs ? env.crs : (hasRealBounds(env) ? 'not provided' : 'not georeferenced')}</span>
               </div>
 
               <div className="provenance-field" style={{ gridColumn: '1 / -1' }}>
@@ -70,14 +78,12 @@ export default function ProvenanceCard({ slotImages }) {
                 </span>
               </div>
 
-              {env.bounds && (
-                <div className="provenance-field" style={{ gridColumn: '1 / -1' }}>
-                  <span className="provenance-field-label">Bounding Footprint [W, S, E, N]</span>
-                  <span className="provenance-field-val mono" style={{ fontSize: '0.75rem' }}>
-                    {env.bounds.map((b) => b.toFixed(4)).join(', ')}
-                  </span>
-                </div>
-              )}
+              <div className="provenance-field" style={{ gridColumn: '1 / -1' }}>
+                <span className="provenance-field-label">Bounding Footprint [W, S, E, N]</span>
+                <span className="provenance-field-val mono" style={{ fontSize: '0.75rem' }}>
+                  {hasRealBounds(env) ? env.bounds.map((b) => b.toFixed(4)).join(', ') : 'not georeferenced'}
+                </span>
+              </div>
             </div>
           </div>
         ))}

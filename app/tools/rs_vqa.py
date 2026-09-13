@@ -111,7 +111,8 @@ def _count_vessels(filepath: str, water_pct: float) -> Dict[str, Any]:
     """Deterministic vessel counting from bright specular targets over dark,
     low-backscatter (water) regions. Lightweight PIL + numpy only."""
     def _fallback() -> Dict[str, Any]:
-        return {"count": max(3, min(14, int(round(water_pct / 5.0)) + 4)), "box": None}
+        # No readable image -> no genuine cluster measurement, so report no count.
+        return {"count": 0, "box": None}
 
     try:
         p = Path(filepath)
@@ -249,7 +250,7 @@ class SingleImageVQATool(ToolBase):
         has_veg = veg_pct > 15.0 or any("forest" in l.lower() or "agriculture" in l.lower() or "pasture" in l.lower() or "grassland" in l.lower() for l in labels)
 
         # --- DYNAMIC QUESTION INTENT DECOMPOSITION ---
-        conf = 0.94
+        conf: Optional[float] = None
 
         # Vessel-counting state (populated only by the maritime counting branch)
         vessel_count: Optional[int] = None
@@ -267,7 +268,7 @@ class SingleImageVQATool(ToolBase):
                 if has_water:
                     text = (
                         f"Yes, specular radar reflection indicates flat water surfaces appearing distinctly dark with "
-                        f"low backscatter (approx. -24 dB to -28 dB) situated in the {top_water_quad}. Water boundaries are "
+                        f"low backscatter situated in the {top_water_quad}. Water boundaries are "
                         f"clearly delineated against adjacent higher-backscatter terrain."
                     )
                 else:
@@ -284,7 +285,7 @@ class SingleImageVQATool(ToolBase):
                 text = (
                     f"SAR radar inspection for query '{query}': Analysis of microwave backscatter returns confirms "
                     f"a structured terrain profile with distinct dielectric contrast. The built-up segments produce high double-bounce returns "
-                    f"(approx. -6 to -9 dB), while natural vegetation exhibits diffuse volume scattering (-14 to -18 dB)."
+                    f"while natural vegetation exhibits diffuse volume scattering."
                 )
         elif modality == "sar":
             if any(k in q_lower for k in ["backscatter", "bright", "white", "intensity"]):
@@ -298,7 +299,7 @@ class SingleImageVQATool(ToolBase):
                 if has_water:
                     text = (
                         f"Yes, specular radar reflection indicates flat water surfaces appearing distinctly dark with "
-                        f"low backscatter (approx. -24 dB to -28 dB) situated in the {top_water_quad}. Water boundaries are "
+                        f"low backscatter situated in the {top_water_quad}. Water boundaries are "
                         f"clearly delineated against adjacent higher-backscatter terrain."
                     )
                 else:
@@ -315,7 +316,7 @@ class SingleImageVQATool(ToolBase):
                 text = (
                     f"SAR radar inspection for query '{query}': Analysis of microwave backscatter returns confirms "
                     f"a structured terrain profile with distinct dielectric contrast. The built-up segments produce high double-bounce returns "
-                    f"(approx. -6 to -9 dB), while natural vegetation exhibits diffuse volume scattering (-14 to -18 dB)."
+                    f"while natural vegetation exhibits diffuse volume scattering."
                 )
         else:
             # Shared Optical & Multispectral Vision-Language VQA Engine
@@ -539,15 +540,22 @@ class SingleImageVQATool(ToolBase):
         if real_result and real_result.get("text"):
             text = real_result["text"]
             conf = 0.90
+            confidence_basis = "nominal_model_estimate"
+        elif img_stats:
+            conf = 0.88
+            confidence_basis = "measured_pixel_analysis"
+        else:
+            conf = None
+            confidence_basis = "not_available"
 
-        # --- PREDICT SPATIAL BOUNDING BOXES FOR VISUAL EVIDENCE OVERLAY ---
+        # --- SPATIAL EVIDENCE: only genuine pixel-clustering boxes are reported ---
         predicted_boxes: List[List[int]] = []
         evidence_items = [
             {
                 "type": "vqa_reasoning",
                 "source_model": "earthdial",
                 "description": f"EarthDial-4B Visual Question Answering inference on {modality} observation.",
-                "score": round(conf, 3),
+                "score": round(conf, 3) if conf is not None else None,
                 "modality": modality,
                 "region": None,
             }
@@ -563,84 +571,17 @@ class SingleImageVQATool(ToolBase):
             y2 = max(0, min(orig_h, int(b[3] / 512.0 * orig_h)))
             return [x1, y1, x2, y2]
 
-        if vessel_count is not None:
-            b_vessel = _scale_box(vessel_box_512) if vessel_box_512 else _scale_box([180, 180, 330, 330])
+        if vessel_box_512:
+            b_vessel = _scale_box(vessel_box_512)
             predicted_boxes.append(b_vessel)
             evidence_items.append({
                 "type": "vessel_count",
                 "source_model": "earthdial",
-                "description": f"Counted {vessel_count} cargo vessels concentrated in the port basin.",
-                "score": 0.93,
+                "description": f"Counted {vessel_count} cargo vessels in the port basin via bright-target pixel clustering.",
+                "method": "bright-target clustering heuristic",
+                "score": round(conf, 3) if conf is not None else None,
                 "modality": modality,
                 "region": b_vessel,
-            })
-
-        if has_water or "water" in fn.lower():
-            # Water Body / Harbor Basin (scaled to actual image space)
-            b_water = _scale_box([100, 90, 340, 330])
-            predicted_boxes.append(b_water)
-            evidence_items.append({
-                "type": "water_body_detection",
-                "source_model": "earthdial",
-                "description": "Enclosed Harbor Basin & Coastal Water Body",
-                "score": 0.95,
-                "modality": modality,
-                "region": b_water,
-            })
-            # Pier & Docking Infrastructure
-            b_pier = _scale_box([30, 25, 150, 145])
-            predicted_boxes.append(b_pier)
-            evidence_items.append({
-                "type": "infrastructure_detection",
-                "source_model": "earthdial",
-                "description": "Concrete Piers & Docking Infrastructure",
-                "score": 0.92,
-                "modality": modality,
-                "region": b_pier,
-            })
-            # Surrounding Coastal Vegetation Zone
-            b_veg = _scale_box([260, 160, 500, 500])
-            predicted_boxes.append(b_veg)
-            evidence_items.append({
-                "type": "vegetation_detection",
-                "source_model": "earthdial",
-                "description": "Coastal Green Vegetation & Marshland",
-                "score": 0.89,
-                "modality": modality,
-                "region": b_veg,
-            })
-        elif has_built:
-            b_built = _scale_box([120, 100, 380, 360])
-            predicted_boxes.append(b_built)
-            evidence_items.append({
-                "type": "built_up_detection",
-                "source_model": "earthdial",
-                "description": "Built-Up Urban / Industrial Footprints",
-                "score": 0.92,
-                "modality": modality,
-                "region": b_built,
-            })
-        elif has_veg:
-            b_veg = _scale_box([80, 80, 430, 430])
-            predicted_boxes.append(b_veg)
-            evidence_items.append({
-                "type": "vegetation_detection",
-                "source_model": "earthdial",
-                "description": "Photosynthetic Vegetation Canopy",
-                "score": 0.91,
-                "modality": modality,
-                "region": b_veg,
-            })
-        else:
-            b_roi = _scale_box([80, 80, 430, 430])
-            predicted_boxes.append(b_roi)
-            evidence_items.append({
-                "type": "feature_detection",
-                "source_model": "earthdial",
-                "description": "Dominant Salient Terrain Feature",
-                "score": 0.90,
-                "modality": modality,
-                "region": b_roi,
             })
 
         checkpoint_dir = self.runtime_mgr.get_checkpoint_dir("earthdial-4b")
@@ -651,13 +592,14 @@ class SingleImageVQATool(ToolBase):
             model_name=self.model_name,
             text=text,
             boxes=predicted_boxes if predicted_boxes else None,
-            confidence=round(conf, 3),
+            confidence=round(conf, 3) if conf is not None else None,
             evidence_type="analysed_image",
             evidence_ptr=envelope.image_id if envelope else None,
             evidence=evidence_items,
             parameters_used=clean_params,
             metadata={
                 "modality": modality,
+                "confidence_basis": confidence_basis,
                 "slot": "S1",
                 "fine_tuned_weights_present": has_trained_weights,
                 "inference_backend": "checkpoint" if real_result else "simulation",

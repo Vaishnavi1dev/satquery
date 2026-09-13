@@ -123,6 +123,7 @@ class MultiTemporalSequenceTool(ToolBase):
         cumulative_delta = 0.0
         total_steps = len(images) - 1
         measured_steps = 0
+        any_model_text = False
 
         for i in range(len(images) - 1):
             env_a = images[i]
@@ -147,42 +148,11 @@ class MultiTemporalSequenceTool(ToolBase):
                 )
                 measured_steps += 1
             else:
-                # Synthetic fallback for unreadable or unchanged pairs. Used only when
-                # no genuine measurement is available; never presented as measured.
-                x1 = int((0.15 + (i * 0.18) % 0.6) * w)
-                y1 = int((0.20 + (i * 0.12) % 0.5) * h)
-                x2 = min(w - 10, x1 + int(0.35 * w))
-                y2 = min(h - 10, y1 + int(0.30 * h))
-                box = [x1, y1, x2, y2]
-
-                if is_urban:
-                    step_delta = round(7.5 + (i * 3.2), 1)
-                    category = "Urban Infrastructure Growth"
-                    desc = (
-                        f"Phase {i+1} ({step_label}): Ground preparation followed by commercial structure "
-                        f"erection in the central corridor (+{step_delta}% built-up area)."
-                    )
-                elif is_water:
-                    step_delta = round(-5.8 + (i * 2.1), 1)
-                    category = "Hydrological Surface Variance"
-                    desc = (
-                        f"Phase {i+1} ({step_label}): Shoreline displacement and seasonal water retention "
-                        f"boundary variation ({step_delta:+.1f}% surface area delta)."
-                    )
-                elif is_veg:
-                    step_delta = round(-8.2 + (i * 1.5), 1)
-                    category = "Canopy Density Modification"
-                    desc = (
-                        f"Phase {i+1} ({step_label}): Canopy clearance and vegetative vigor transition "
-                        f"({step_delta:+.1f}% estimated NDVI canopy delta)."
-                    )
-                else:
-                    step_delta = round(6.4 + (i * 2.0), 1)
-                    category = "General Surface Transformation"
-                    desc = (
-                        f"Phase {i+1} ({step_label}): Land cover transition detected across region "
-                        f"[{x1}, {y1}, {x2}, {y2}] with +{step_delta}% cumulative perturbation."
-                    )
+                # No genuine measurement: never invent a delta, region, or category.
+                step_delta = None
+                box = None
+                category = "Measurement Unavailable"
+                desc = f"Phase {i+1} ({step_label}): Measurement unavailable for this transition."
 
             # Per-transition model call: compare ONLY this consecutive pair so the
             # model describes each transition rather than collapsing to one generic T1-vs-TN sentence.
@@ -200,12 +170,25 @@ class MultiTemporalSequenceTool(ToolBase):
                         model_text = real["text"].strip() or None
                 except Exception as exc:
                     self.runtime_mgr.load_errors[self.model_key] = f"Inference: {type(exc).__name__}: {exc}"
+            if model_text:
+                any_model_text = True
 
-            cumulative_delta += step_delta
-            all_boxes.append(box)
+            if step_delta is not None:
+                cumulative_delta += step_delta
+            if box is not None:
+                all_boxes.append(box)
             step_narratives.append(desc)
             model_step_texts.append(model_text)
-            step_conf = round(0.92 - (i * 0.02), 3)
+
+            if measured is not None:
+                step_conf = 0.90
+                step_basis = "measured_pixel_analysis"
+            elif model_text:
+                step_conf = 0.85
+                step_basis = "nominal_model_estimate"
+            else:
+                step_conf = None
+                step_basis = "not_available"
 
             temporal_events.append({
                 "transition": step_label,
@@ -215,18 +198,19 @@ class MultiTemporalSequenceTool(ToolBase):
                 "to_filename": env_b.filename,
                 "category": category,
                 "delta_pct": step_delta,
-                "cumulative_delta_pct": round(cumulative_delta, 1),
+                "cumulative_delta_pct": round(cumulative_delta, 1) if measured_steps > 0 else None,
                 "region": box,
                 "description": desc,
                 "model_description": model_text,
-                "confidence": step_conf
+                "confidence": step_conf,
+                "confidence_basis": step_basis,
             })
 
         all_measured = total_steps > 0 and measured_steps == total_steps
-        any_model_text = any(model_step_texts)
+        any_measured = measured_steps > 0
 
         # Compose a genuine multi-temporal narrative: one bullet per consecutive transition,
-        # each carrying its own model description (or the measured/fallback description).
+        # each carrying its own model description (or the measured description).
         header = (
             f"Multi-Temporal Sequence Analysis across {num_steps} sequential satellite acquisitions "
             f"(T1 through T{num_steps}):"
@@ -243,38 +227,60 @@ class MultiTemporalSequenceTool(ToolBase):
                 desc = ev["description"]
                 prefix = f"Phase {i+1} ({step_label}): "
                 body = desc[len(prefix):] if desc.startswith(prefix) else desc
-            phase_lines.append(
-                f"• Phase {i+1} ({step_label}): {body} "
-                f"(measured surface difference {delta:.1f}%, "
-                f"region [{box[0]}, {box[1]}, {box[2]}, {box[3]}])."
-            )
+            if delta is not None and box is not None:
+                suffix = (
+                    f"(measured surface difference {delta:.1f}%, "
+                    f"region [{box[0]}, {box[1]}, {box[2]}, {box[3]}])."
+                )
+            else:
+                suffix = "(measurement unavailable; no delta or region reported)."
+            phase_lines.append(f"• Phase {i+1} ({step_label}): {body} {suffix}")
         phase_block = "\n".join(phase_lines)
 
-        # Closing synthesis: honest measured mean/cumulative difference, never a fabricated
-        # cycle-consistency value. Always mentions "cumulative", including fallback paths.
+        # Closing synthesis: report the real cumulative difference when it can be
+        # computed, otherwise say so honestly. Always mentions "cumulative".
         if all_measured:
             mean_delta = cumulative_delta / total_steps if total_steps else 0.0
             synthesis_line = (
                 f"Synthesis Trend: across the entire sequence from T1 to T{num_steps}, the mean measured "
                 f"surface difference per transition was {mean_delta:.1f}% (cumulative {cumulative_delta:+.1f}%)."
             )
+        elif measured_steps == 0:
+            synthesis_line = (
+                f"Synthesis Trend: across the entire sequence from T1 to T{num_steps}, the cumulative "
+                f"surface difference could not be computed because no transition produced a valid "
+                f"pixel-difference measurement."
+            )
         else:
             synthesis_line = (
                 f"Synthesis Trend: across the entire sequence from T1 to T{num_steps}, the cumulative "
-                f"surface difference was {cumulative_delta:+.1f}%."
+                f"surface difference could only be partially computed from {measured_steps} of "
+                f"{total_steps} measured transitions ({cumulative_delta:+.1f}%)."
             )
 
         full_text = header + "\n" + phase_block + "\n\n" + synthesis_line
+
+        if any_measured:
+            overall_conf = 0.90
+            confidence_basis = "measured_pixel_analysis"
+        elif any_model_text:
+            overall_conf = 0.85
+            confidence_basis = "nominal_model_estimate"
+        else:
+            overall_conf = None
+            confidence_basis = "not_available"
 
         evidence_items = [
             {
                 "type": "temporal_sequence",
                 "source_model": self.model_name,
-                "score": 0.93,
-                "confidence": 0.93,
+                "score": overall_conf,
+                "confidence": overall_conf,
+                "confidence_basis": confidence_basis,
                 "description": f"Continuous temporal trajectory analyzed across {num_steps} observation epochs.",
                 "total_transitions": len(temporal_events),
-                "cumulative_delta_pct": round(cumulative_delta, 1)
+                "measured_transitions": measured_steps,
+                "cumulative_delta_pct": round(cumulative_delta, 1) if any_measured else None,
             }
         ]
 
@@ -288,24 +294,29 @@ class MultiTemporalSequenceTool(ToolBase):
                 "region": ev["region"],
                 "score": ev["confidence"],
                 "confidence": ev["confidence"],
-                "description": ev["description"]
+                "confidence_basis": ev["confidence_basis"],
+                "description": ev["description"],
             })
 
         return ToolOutput(
             tool_name=self.name,
             model_name=self.model_name,
             text=full_text,
-            boxes=all_boxes,
-            confidence=0.92,
+            boxes=all_boxes or None,
+            confidence=overall_conf,
             evidence_type="temporal_sequence",
             evidence=evidence_items,
             parameters_used=clean_params,
             metadata={
                 "sequence_length": num_steps,
                 "temporal_events": temporal_events,
-                "cumulative_delta_pct": round(cumulative_delta, 1),
-                "cycle_consistency": None,
-                "inference_backend": "checkpoint" if any_model_text else "rule_based",
+                "cumulative_delta_pct": round(cumulative_delta, 1) if any_measured else None,
+                "measured_transitions": measured_steps,
+                "confidence_basis": confidence_basis,
+                "inference_backend": (
+                    "checkpoint" if any_model_text
+                    else ("pixel_analysis" if any_measured else "unavailable")
+                ),
                 "model_step_texts": model_step_texts,
                 "model_narrative": " ".join(t for t in model_step_texts if t) or None,
                 "checkpoint_dir": (

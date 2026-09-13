@@ -2,14 +2,21 @@ import React from 'react';
 import { ShieldCheck, AlertTriangle, Award, ShieldAlert } from 'lucide-react';
 
 export default function ConfidenceGauge({ confidence, rawConfidence, uncertaintyFlag, conflictDetected, uncertaintyExplanation, temperature = 1.15 }) {
-  const confValue = typeof confidence === 'number' ? confidence : 0.85;
-  const pct = Math.min(100, Math.max(0, Math.round(confValue <= 1 ? confValue * 100 : confValue)));
+  const hasConfidence = typeof confidence === 'number';
+  const confValue = hasConfidence ? confidence : null;
+  const pct = hasConfidence
+    ? Math.min(100, Math.max(0, Math.round(confValue <= 1 ? confValue * 100 : confValue)))
+    : null;
 
-  let color = 'var(--success)';
-  let statusText = 'HIGH CERTAINTY';
-  let desc = 'Statistical reliability passed calibration bounds.';
+  let color = 'var(--text-muted)';
+  let statusText = 'NOT REPORTED';
+  let desc = 'No confidence value was reported for this result.';
 
-  if (uncertaintyFlag || conflictDetected) {
+  if (!hasConfidence) {
+    color = 'var(--text-muted)';
+    statusText = 'NOT REPORTED';
+    desc = 'No confidence value was reported for this result.';
+  } else if (uncertaintyFlag || conflictDetected) {
     color = 'var(--warning)';
     statusText = 'UNCERTAINTY FLAGGED';
     desc = uncertaintyExplanation || 'Multi-model divergence or low certainty detected. Verification advised.';
@@ -21,11 +28,15 @@ export default function ConfidenceGauge({ confidence, rawConfidence, uncertainty
     color = 'var(--warning)';
     statusText = 'MODERATE CONFIDENCE';
     desc = 'Cross-validated with secondary spectral metrics.';
+  } else {
+    color = 'var(--success)';
+    statusText = 'HIGH CERTAINTY';
+    desc = 'Confidence reported above the moderate threshold.';
   }
 
   const radius = 64;
   const circumference = 2 * Math.PI * radius;
-  const strokeDashoffset = circumference - (pct / 100) * circumference;
+  const strokeDashoffset = circumference - ((pct ?? 0) / 100) * circumference;
 
   return (
     <div className="pillar-confidence-card glass-panel">
@@ -63,7 +74,7 @@ export default function ConfidenceGauge({ confidence, rawConfidence, uncertainty
           </svg>
 
           <div className="gauge-inner-label">
-            <span className="gauge-pct" style={{ color }}>{pct}%</span>
+            <span className="gauge-pct" style={{ color }}>{hasConfidence ? `${pct}%` : 'N/A'}</span>
             <span className="gauge-status-text" style={{ color, fontSize: '0.68rem' }}>{statusText}</span>
           </div>
         </div>
@@ -76,24 +87,26 @@ export default function ConfidenceGauge({ confidence, rawConfidence, uncertainty
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', marginTop: '0.5rem' }}>
         <div className="confidence-metric-row">
           <span>Calibration Mode</span>
-          <span style={{ color: 'var(--cyan-400)' }}>Platt / Temperature Scaling</span>
+          <span style={{ color: 'var(--cyan-400)' }}>Fixed-Temperature Logit Rescaling</span>
         </div>
         <div className="confidence-metric-row">
-          <span>Temperature (T)</span>
+          <span>Temperature (T, fixed constant)</span>
           <span>{temperature.toFixed(2)}</span>
         </div>
         <div className="confidence-metric-row">
           <span>Raw → Calibrated</span>
           <span>
-            {typeof rawConfidence === 'number'
+            {typeof rawConfidence === 'number' && hasConfidence
               ? `${Math.round(rawConfidence * 100)}% → ${pct}%`
-              : `${pct}%`}
+              : hasConfidence
+              ? `${pct}%`
+              : 'not reported'}
           </span>
         </div>
         <div className="confidence-metric-row">
-          <span>Honesty Discrepancy Gate</span>
+          <span>Confidence Threshold Flag</span>
           <span style={{ color: uncertaintyFlag ? 'var(--warning)' : 'var(--success)' }}>
-            {uncertaintyFlag ? 'Flagged (Disclosed)' : 'Passed (Consistent)'}
+            {uncertaintyFlag ? 'Flagged' : 'Not flagged'}
           </span>
         </div>
       </div>

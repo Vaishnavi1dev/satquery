@@ -239,30 +239,36 @@ class AgentController:
                     label="Scene under analysis"
                 )
             else:
-                # Single-image VQA or Grounding: render visual evidence overlay
-                if not aggregated.boxes and images:
-                    w = images[0].width or 512
-                    h = images[0].height or 512
-                    aggregated.boxes = [[int(w * 0.12), int(h * 0.12), int(w * 0.88), int(h * 0.88)]]
+                # Single-image VQA or Grounding: render the analysed scene. Draw boxes
+                # only when a specialist genuinely returned a localization; never
+                # synthesize a fallback region when localization produced nothing.
+                if aggregated.boxes:
+                    evidence_path = self.evidence_renderer.render_bounding_boxes(
+                        session_id=session_id,
+                        envelope=images[0],
+                        boxes=aggregated.boxes,
+                        label=query[:24] if query else "Analysed Target"
+                    )
+                else:
+                    evidence_path = self.evidence_renderer.render_analysed_image(
+                        session_id=session_id,
+                        envelope=images[0],
+                        label="Scene under analysis"
+                    )
 
-                evidence_path = self.evidence_renderer.render_bounding_boxes(
-                    session_id=session_id,
-                    envelope=images[0],
-                    boxes=aggregated.boxes or [],
-                    label=query[:24] if query else "Analysed Target"
-                )
-
-            # Generate GeoJSON if spatial boxes detected
+            # Generate GeoJSON only when the target image carries real geographic
+            # bounds. Pixel boxes are still returned, but no WGS84 geometry is invented.
             if aggregated.boxes:
                 target_env = images[-1] if len(images) >= 2 else images[0]
-                geojson_path = self.evidence_renderer.save_geojson_evidence(
-                    session_id=session_id,
-                    envelope=target_env,
-                    boxes=aggregated.boxes,
-                    label=f"Spatial Target ({task})",
-                    evidence_items=aggregated.evidence
-                )
-                geojson_url = f"/api/evidence/{geojson_path.name}?session_id={session_id}"
+                if target_env is not None and target_env.bounds:
+                    geojson_path = self.evidence_renderer.save_geojson_evidence(
+                        session_id=session_id,
+                        envelope=target_env,
+                        boxes=aggregated.boxes,
+                        label=f"Spatial Target ({task})",
+                        evidence_items=aggregated.evidence
+                    )
+                    geojson_url = f"/api/evidence/{geojson_path.name}?session_id={session_id}"
 
             if evidence_path:
                 evidence_url = f"/api/evidence/{evidence_path.name}?session_id={session_id}"

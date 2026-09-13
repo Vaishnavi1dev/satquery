@@ -43,87 +43,19 @@ class BiTemporalChangeVQATool(ToolBase):
         orig_w = max(t1_env.width, t2_env.width)
         orig_h = max(t1_env.height, t2_env.height)
 
-        # Use the actual pair as the evidence source whenever the files are readable.
-        # The specialist model may still provide semantic interpretation, but the
-        # reported change percentage and region are anchored to observed pixels.
+        # Only a genuine pixel-level measurement may produce a change ratio, region,
+        # or change type. When measurement is unavailable, report that honestly
+        # instead of substituting fabricated values.
         measured_change = self._measure_change(t1_env, t2_env, orig_w, orig_h)
 
-        # Modality-aware and query-aware change reasoning
-        if modality == "sar":
-            if any(k in q_lower for k in ["water", "flood", "inundation", "lake"]):
-                text = (
-                    "Bi-temporal SAR backscatter analysis reveals significant flood inundation between Observation T1 and T2. "
-                    "Radar signal attenuation (VV drop from -12 dB to -26 dB) confirms specular reflection over previously "
-                    "rough agricultural ground, indicating ~34.8 hectares of newly submerged land."
-                )
-                boxes = [[int(0.15 * orig_w), int(0.20 * orig_h), int(0.65 * orig_w), int(0.75 * orig_h)]]
-                change_type = "flood_inundation"
-                change_ratio = 0.348
-                conf = 0.94
-            else:
-                text = (
-                    "Multi-temporal SAR comparison detects localized double-bounce dihedral backscatter increases. "
-                    "Bright point returns in the northeast zone indicate new metallic and concrete structures erected between passes, "
-                    "while surrounding vegetative volume scattering remained consistent."
-                )
-                boxes = [[int(0.40 * orig_w), int(0.15 * orig_h), int(0.80 * orig_w), int(0.60 * orig_h)]]
-                change_type = "sar_structural_addition"
-                change_ratio = 0.162
-                conf = 0.92
-        elif modality == "multispectral":
-            if any(k in q_lower for k in ["fire", "burn", "scar", "wildfire"]):
-                text = (
-                    "Multispectral differential analysis (Sentinel-2 NIR B08 and Red B04) delineates a pronounced wildfire burn scar. "
-                    "Normalized Burn Ratio (NBR) dropped sharply across the southwest quadrant, accompanied by loss of active photosynthetic "
-                    "canopy over an estimated 28.4% of the observation extent."
-                )
-                boxes = [[int(0.10 * orig_w), int(0.35 * orig_h), int(0.60 * orig_w), int(0.85 * orig_h)]]
-                change_type = "wildfire_burn_scar"
-                change_ratio = 0.284
-                conf = 0.93
-            else:
-                text = (
-                    "Multispectral bi-temporal analysis indicates significant vegetative canopy dynamics: agricultural parcels in the "
-                    "eastern sector transitioned from bare tilled soil at T1 to dense standing crops (NDVI increase +0.42) at T2, "
-                    "confirming seasonal cultivation."
-                )
-                boxes = [[int(0.30 * orig_w), int(0.25 * orig_h), int(0.75 * orig_w), int(0.70 * orig_h)]]
-                change_type = "vegetation_growth"
-                change_ratio = 0.221
-                conf = 0.91
-        else:
-            # Optical baseline
-            if any(k in q_lower for k in ["built-up", "urban", "building", "infrastructure", "increased", "decreased", "damage"]):
-                text = (
-                    "Joint bi-temporal comparison between Observation T1 and Observation T2 indicates a notable increase "
-                    "in built-up impervious surface (+18.4% estimated areal expansion). Previously uncultivated open land in "
-                    "the eastern and south-central quadrants has been converted into commercial structures and residential foundations. "
-                    "The surrounding natural buffer has decreased correspondingly."
-                )
-                boxes = [[int(0.45 * orig_w), int(0.20 * orig_h), int(0.85 * orig_w), int(0.65 * orig_h)]]
-                change_type = "built_up_expansion"
-                change_ratio = 0.184
-                conf = 0.93
-            elif any(k in q_lower for k in ["water", "flood", "lake", "reservoir"]):
-                text = (
-                    "Comparing the two acquisition dates reveals a significant contraction of the surface water body boundary. "
-                    "Water extent receded by approximately 12.3% along the shallow northern shoreline between T1 and T2, "
-                    "exposing riparian mudflats and localized silt bars."
-                )
-                boxes = [[int(0.10 * orig_w), int(0.08 * orig_h), int(0.40 * orig_w), int(0.45 * orig_h)]]
-                change_type = "water_contraction"
-                change_ratio = 0.123
-                conf = 0.91
-            else:
-                text = (
-                    f"Bi-temporal inspection between Date 1 (T1) and Date 2 (T2) answers '{query}': "
-                    f"Significant spatial differences are detected across the primary active zone in the central-east quadrant, "
-                    f"involving clearing of vegetative ground cover and site grading for civil infrastructure."
-                )
-                boxes = [[int(0.35 * orig_w), int(0.25 * orig_h), int(0.75 * orig_w), int(0.70 * orig_h)]]
-                change_type = "land_alteration"
-                change_ratio = 0.142
-                conf = 0.89
+        model_text = None
+        if real_result and real_result.get("text"):
+            model_text = real_result["text"].strip() or None
+
+        boxes = None
+        change_ratio = None
+        change_type = None
+        conf = None
 
         if measured_change:
             changed_pct = measured_change["changed_pct"]
@@ -143,49 +75,83 @@ class BiTemporalChangeVQATool(ToolBase):
             )
             change_type = "measured_surface_difference"
             conf = 0.88
+        else:
+            text = (
+                "Bi-temporal comparison between Observation T1 and Observation T2 could not compute "
+                "a pixel-difference measurement for these inputs; no change ratio, change region, or "
+                f"change type can be reported. Query: '{query}'."
+            )
 
-        cycle_consistency = round(max(0.0, 1.0 - (change_ratio * 0.2)), 3)
+        if model_text:
+            # Keep the genuine EarthDial per-pair observation when the model ran.
+            text = (
+                text
+                + "\n\n\U0001F9E0 Specialist VLM Observation (EarthDial-4B Multi-Modal, checkpoint):\n"
+                + model_text
+            )
 
-        if real_result and real_result.get("text"):
-            model_text = real_result["text"].strip()
+        if measured_change:
+            confidence_basis = "measured_pixel_analysis"
             if model_text:
-                text = (
-                    text
-                    + "\n\n\U0001F9E0 Specialist VLM Observation (EarthDial-4B Multi-Modal, checkpoint):\n"
-                    + model_text
-                )
                 conf = max(conf, 0.90)
+        elif model_text:
+            confidence_basis = "nominal_model_estimate"
+            conf = 0.90
+        else:
+            confidence_basis = "not_available"
+            conf = None
 
-        # Compute real-world geographic coordinates
-        geo_boxes = [pixel_box_to_geo(b, t2_env) for b in boxes]
-        if geo_boxes:
-            primary_geo = geo_boxes[0]["formatted_coords"]
+        # Compute real-world geographic coordinates only when the image is genuinely
+        # georeferenced; otherwise keep pixel localization and report no WGS84 geometry.
+        geo_boxes = [pixel_box_to_geo(b, t2_env) for b in (boxes or [])]
+        real_geo_boxes = [g for g in geo_boxes if g is not None]
+        if real_geo_boxes:
+            primary_geo = real_geo_boxes[0]["formatted_coords"]
             text += f"\n\n📍 **Geographic Coordinates (WGS84):** `{primary_geo}`"
 
-        evidence_items = [
-            {
-                "type": "change_region",
-                "source_model": "earthdial-4b",
-                "region": box,
-                "geo_coordinates": gbox["formatted_coords"],
-                "geo_box": gbox["geo_box"],
-                "time_from": "T1",
-                "time_to": "T2",
-                "change_detected": True,
-                "change_type": change_type,
-                "change_ratio": change_ratio,
-                "cycle_consistency": cycle_consistency,
-                "score": round(conf, 3),
-            }
-            for box, gbox in zip(boxes, geo_boxes)
-        ]
+        change_detected = measured_change is not None
+        score = round(conf, 3) if conf is not None else None
+
+        if boxes:
+            evidence_items = [
+                {
+                    "type": "change_region",
+                    "source_model": "earthdial-4b",
+                    "region": box,
+                    "geo_coordinates": gbox["formatted_coords"] if gbox else None,
+                    "geo_box": gbox["geo_box"] if gbox else None,
+                    "time_from": "T1",
+                    "time_to": "T2",
+                    "change_detected": change_detected,
+                    "change_type": change_type,
+                    "change_ratio": change_ratio,
+                    "score": score,
+                }
+                for box, gbox in zip(boxes, geo_boxes)
+            ]
+        else:
+            evidence_items = [
+                {
+                    "type": "change_region",
+                    "source_model": "earthdial-4b",
+                    "region": None,
+                    "geo_coordinates": None,
+                    "geo_box": None,
+                    "time_from": "T1",
+                    "time_to": "T2",
+                    "change_detected": change_detected,
+                    "change_type": change_type,
+                    "change_ratio": None,
+                    "score": score,
+                }
+            ]
 
         return ToolOutput(
             tool_name=self.name,
             model_name=self.model_name,
             text=text,
             boxes=boxes,
-            confidence=round(conf, 3),
+            confidence=score,
             evidence_type="bi_temporal_pair",
             evidence_ptr=f"{t1_env.image_id}__{t2_env.image_id}",
             evidence=evidence_items,
@@ -195,12 +161,20 @@ class BiTemporalChangeVQATool(ToolBase):
                 "t2_image_id": t2_env.image_id,
                 "slot": "S3",
                 "modality": modality,
-                "change_detected": True,
+                "change_detected": change_detected,
                 "change_type": change_type,
-                "geo_boxes": geo_boxes,
-                "cycle_consistency": cycle_consistency,
-                "inference_backend": "checkpoint" if real_result else ("pixel_analysis" if measured_change else "simulation"),
-                "checkpoint_dir": real_result.get("checkpoint_dir") if real_result else str(self.runtime_mgr.get_checkpoint_dir(self.model_key)) if self.runtime_mgr.get_checkpoint_dir(self.model_key) else None,
+                "change_ratio": change_ratio,
+                "geo_boxes": real_geo_boxes or None,
+                "confidence_basis": confidence_basis,
+                "inference_backend": (
+                    "checkpoint" if real_result
+                    else ("pixel_analysis" if measured_change else "unavailable")
+                ),
+                "checkpoint_dir": real_result.get("checkpoint_dir") if real_result else (
+                    str(self.runtime_mgr.get_checkpoint_dir(self.model_key))
+                    if self.runtime_mgr.get_checkpoint_dir(self.model_key)
+                    else None
+                ),
             }
         )
 

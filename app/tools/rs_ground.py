@@ -55,80 +55,51 @@ class TextGuidedGroundingTool(ToolBase):
 
         parsed_boxes = self._parse_model_boxes(real_result.get("text") if real_result else "")
 
-        # Generate contextual bounding boxes
         # Default EarthDial 0-1000 normalized coordinates [ymin, xmin, ymax, xmax]
         orig_w = envelope.width if envelope else 512
         orig_h = envelope.height if envelope else 512
 
         if parsed_boxes:
-            raw_boxes = parsed_boxes
-            label = "Model-grounded target region"
-            conf = 0.90
-        elif any(k in q_lower for k in ["vehicle", "car", "bus", "truck", "yellow vehicle", "lead bus"]):
-            raw_boxes = [[100, 80, 350, 240]]
-            label = "Target Grounding (Lead Vehicle Unit)"
-            conf = 0.95
-        elif any(k in q_lower for k in ["water", "river", "lake", "canal", "reservoir"]):
-            raw_boxes = [[120, 80, 480, 320]]
-            if any(lc in q_lower for lc in ["land cover", "landcover", "cover", "agriculture", "crop"]):
-                raw_boxes.append([500, 50, 920, 950])
-                label = "Water Body & Surrounding Land Cover"
+            # Only boxes the model actually emitted are reported.
+            if transform_meta:
+                projected_boxes = self.prep_svc.project_boxes_to_original(parsed_boxes, transform_meta)
             else:
-                label = "Water Body / Hydrological Feature"
-            conf = 0.94
-        elif any(k in q_lower for k in ["built", "urban", "building", "house", "settlement"]):
-            raw_boxes = [
-                [200, 350, 680, 850],
-                [520, 100, 890, 450]
-            ]
-            label = "Built-Up / Urban Structures"
-            conf = 0.91
-        elif any(k in q_lower for k in ["road", "highway", "runway", "corridor"]):
-            raw_boxes = [[250, 50, 400, 950]]
-            label = "Transportation Arterial Corridor"
-            conf = 0.89
-        elif any(k in q_lower for k in ["crop", "field", "farm", "agriculture"]):
-            raw_boxes = [
-                [50, 50, 400, 450],
-                [420, 500, 920, 950]
-            ]
-            label = "Agricultural Cultivation Parcel"
-            conf = 0.92
-        else:
-            # General salient region
-            raw_boxes = [[200, 200, 780, 780]]
-            label = f"Region of Interest: '{query}'"
-            conf = 0.88
-
-        # Project boxes to image pixel coordinates
-        if transform_meta:
-            projected_boxes = self.prep_svc.project_boxes_to_original(raw_boxes, transform_meta)
-        else:
-            projected_boxes = [
-                [
-                    max(0, min(orig_w, int(box[1] / 1000.0 * orig_w))),
-                    max(0, min(orig_h, int(box[0] / 1000.0 * orig_h))),
-                    max(0, min(orig_w, int(box[3] / 1000.0 * orig_w))),
-                    max(0, min(orig_h, int(box[2] / 1000.0 * orig_h)))
+                projected_boxes = [
+                    [
+                        max(0, min(orig_w, int(box[1] / 1000.0 * orig_w))),
+                        max(0, min(orig_h, int(box[0] / 1000.0 * orig_h))),
+                        max(0, min(orig_w, int(box[3] / 1000.0 * orig_w))),
+                        max(0, min(orig_h, int(box[2] / 1000.0 * orig_h)))
+                    ]
+                    for box in parsed_boxes
                 ]
-                for box in raw_boxes
+            label = "Model-grounded target region"
+            confidence_basis = "nominal_model_estimate"
+            conf = 0.90
+            text = (
+                f"The model grounded {len(projected_boxes)} region(s) corresponding to '{query}' ({label})."
+            )
+            evidence_items = [
+                {
+                    "type": "bounding_box",
+                    "source_model": "earthdial",
+                    "label": label,
+                    "region": box,
+                    "score": round(conf, 3)
+                }
+                for box in projected_boxes
             ]
-
-        text = (
-            f"Successfully grounded {len(projected_boxes)} region(s) corresponding to '{query}' ({label}). "
-            f"Spatial bounding coordinates identified with high localization confidence."
-        )
-
-        evidence_items = [
-            {
-                "type": "bounding_box",
-                "source_model": "earthdial",
-                "label": label,
-                "region": box,
-                "score": round(conf, 3)
-            }
-            for box in projected_boxes
-        ]
+        else:
+            # No genuine model localization -> report honestly instead of inventing a region.
+            projected_boxes = []
+            label = "not_localized"
+            confidence_basis = "not_available"
+            conf = None
+            text = (
+                f"The referenced region for '{query}' could not be localized: the model returned no "
+                f"parseable bounding box for this observation, so no region is reported."
+            )
+            evidence_items = []
 
         checkpoint_dir = self.runtime_mgr.get_checkpoint_dir("earthdial-4b")
         has_trained_weights = checkpoint_dir is not None
@@ -137,8 +108,8 @@ class TextGuidedGroundingTool(ToolBase):
             tool_name=self.name,
             model_name=self.model_name,
             text=text,
-            boxes=projected_boxes,
-            confidence=round(conf, 3),
+            boxes=projected_boxes if projected_boxes else None,
+            confidence=round(conf, 3) if conf is not None else None,
             evidence_type="analysed_image",
             evidence_ptr=envelope.image_id if envelope else None,
             evidence=evidence_items,
@@ -146,6 +117,7 @@ class TextGuidedGroundingTool(ToolBase):
             metadata={
                 "target_query": query,
                 "label": label,
+                "confidence_basis": confidence_basis,
                 "box_count": len(projected_boxes),
                 "fine_tuned_weights_present": has_trained_weights,
                 "inference_backend": "checkpoint" if real_result else "simulation",

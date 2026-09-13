@@ -1,6 +1,5 @@
 import React from 'react';
 import { Send, Sparkles, CheckCircle2, AlertTriangle, ShieldCheck } from 'lucide-react';
-import DisasterPresets from './DisasterPresets.jsx';
 
 
 const PROMPT_SUGGESTIONS = [
@@ -39,7 +38,7 @@ export default function QueryPanel({
           </h2>
         </div>
         <span className="tag-pill mono" style={{ fontSize: '0.72rem' }}>
-          Agentic Planner: EarthDial-4B / DOFA ViT
+          Deterministic intent classification & linear step planning
         </span>
       </div>
 
@@ -54,11 +53,6 @@ export default function QueryPanel({
         />
       </div>
 
-      {/* Thematic Disaster Quick-Scan Chips */}
-      <DisasterPresets
-        onSelectPreset={(presetQuery) => onQueryChange(presetQuery)}
-        disabled={isExecuting}
-      />
 
       <div className="query-examples-bar">
         <span className="example-label">Prompt Suggestions:</span>
@@ -80,7 +74,7 @@ export default function QueryPanel({
           {validationResult?.valid ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--success)' }}>
               <ShieldCheck size={16} />
-              <span>Inputs validated & verified for autonomous agentic inference</span>
+              <span>Image count and modality pairing checked (no CRS validation)</span>
             </div>
           ) : validationResult?.message ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--warning)' }}>

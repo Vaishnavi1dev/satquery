@@ -31,6 +31,11 @@ class ImageMetadataEnvelope(BaseModel):
     thumbnail_base64: Optional[str] = None
     tags: Dict[str, Any] = Field(default_factory=dict)
 
+    @property
+    def is_georeferenced(self) -> bool:
+        """True only when the file itself supplied genuine geographic bounds."""
+        return bool(self.bounds) and len(self.bounds) == 4
+
 
 class ImageIngestionService:
     """Reads GeoTIFF, TIFF, PNG, and JPEG imagery, extracts metadata, and detects modality."""
@@ -177,6 +182,15 @@ class ImageIngestionService:
         except Exception:
             return ""
 
+    @staticmethod
+    def generic_sensor_label(modality: str) -> Optional[str]:
+        """Modality-honest platform label used only when the file names no sensor."""
+        return {
+            "optical": "Optical (RGB)",
+            "multispectral": "Multispectral",
+            "sar": "SAR (radar)",
+        }.get(modality)
+
     def ingest_image(
         self,
         file_bytes: bytes,
@@ -200,8 +214,10 @@ class ImageIngestionService:
 
         image_id = f"img_{sha256_hash[:12]}"
 
-        # Ensure bounds exist or provide realistic default bounding box
-        default_bounds = tags.get("bounds") or [78.4500, 17.3500, 78.5500, 17.4500]
+        # Carry only georeferencing the file actually provides. Never invent an
+        # AOI, a CRS, a resolution, or a named satellite platform for plain imagery.
+        raw_bounds = tags.get("bounds")
+        real_bounds = raw_bounds if isinstance(raw_bounds, list) and len(raw_bounds) == 4 else None
 
         envelope = ImageMetadataEnvelope(
             image_id=image_id,
@@ -214,11 +230,11 @@ class ImageIngestionService:
             file_size_bytes=len(file_bytes),
             sha256=sha256_hash,
             modality=modality,
-            sensor=tags.get("sensor") or ("Sentinel-2" if modality == "multispectral" else ("Sentinel-1 / RISAT" if modality == "sar" else "Cartosat-2S / Optical")),
-            crs=tags.get("crs") or "EPSG:4326",
-            resolution_m=tags.get("resolution") or (10.0 if modality in ("multispectral", "sar") else 0.65),
-            bounds=default_bounds,
-            geo_bbox=default_bounds,
+            sensor=tags.get("sensor") or self.generic_sensor_label(modality),
+            crs=tags.get("crs"),
+            resolution_m=tags.get("resolution"),
+            bounds=real_bounds,
+            geo_bbox=real_bounds,
             nodata_val=None,
             thumbnail_base64=thumbnail,
             tags=tags
@@ -226,11 +242,16 @@ class ImageIngestionService:
         return envelope
 
 
-def pixel_box_to_geo(box: List[int], envelope: ImageMetadataEnvelope) -> Dict[str, Any]:
+def pixel_box_to_geo(box: List[int], envelope: ImageMetadataEnvelope) -> Optional[Dict[str, Any]]:
     """
-    Transforms pixel bounding box [x1, y1, x2, y2] into real-world geographic coordinates (WGS84 Lat/Lon).
+    Transforms pixel bounding box [x1, y1, x2, y2] into real-world geographic coordinates.
+
+    Returns ``None`` when the source image carries no genuine georeferencing; no
+    default or inferred AOI is ever substituted.
     """
-    bounds = envelope.bounds or [78.4500, 17.3500, 78.5500, 17.4500]
+    bounds = envelope.bounds
+    if not bounds or len(bounds) != 4:
+        return None
     min_lon, min_lat, max_lon, max_lat = bounds
 
     w = max(1, envelope.width)
@@ -256,7 +277,7 @@ def pixel_box_to_geo(box: List[int], envelope: ImageMetadataEnvelope) -> Dict[st
         "pixel_box": [x1, y1, x2, y2],
         "geo_box": [b_min_lon, b_min_lat, b_max_lon, b_max_lat],
         "formatted_coords": f"[{lat1_str}, {lon1_str}] to [{lat2_str}, {lon2_str}]",
-        "crs": envelope.crs or "EPSG:4326"
+        "crs": envelope.crs
     }
 
 
@@ -274,9 +295,22 @@ def boxes_to_geojson(
         "built_up": "#f59e0b",             # Urban Amber / Orange
     }
 
+    if not envelope.bounds or len(envelope.bounds) != 4:
+        return {
+            "type": "FeatureCollection",
+            "crs": {
+                "type": "name",
+                "properties": {"name": "urn:ogc:def:crs:OGC:1.3:CRS84"}
+            },
+            "features": [],
+            "note": "No georeferencing available; no geographic features were generated."
+        }
+
     features = []
     for idx, box in enumerate(boxes):
         geo_info = pixel_box_to_geo(box, envelope)
+        if geo_info is None:
+            continue
         min_lon, min_lat, max_lon, max_lat = geo_info["geo_box"]
         coordinates = [[
             [min_lon, min_lat],

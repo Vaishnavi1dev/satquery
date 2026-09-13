@@ -17,6 +17,16 @@ export default function InteractiveMapViewer({ result, slotImages, sessionId }) 
   const availableSlotsList = Object.values(slotImages || {}).filter(Boolean);
   const firstSlot = availableSlotsList.length > 0 ? availableSlotsList[0] : null;
 
+  // Real georeference only: GeoTIFF tag, non-null CRS, real bounds, or a server GeoJSON layer
+  const envBounds = firstSlot?.bounds || firstSlot?.geo_bbox;
+  const hasRealBounds = Array.isArray(envBounds) && envBounds.length === 4;
+  const isGeoreferenced = Boolean(
+    firstSlot?.tags?.geotiff ||
+    (firstSlot?.crs != null && firstSlot?.crs !== '') ||
+    hasRealBounds ||
+    result?.geojson_url
+  );
+
   // Basemap Tile Providers
   const TILE_SERVERS = {
     satellite: {
@@ -31,17 +41,13 @@ export default function InteractiveMapViewer({ result, slotImages, sessionId }) 
     },
   };
 
-  // Determine initial center coordinates
-  const getFallbackCoordinates = () => {
-    // Check if firstSlot has bounds or geo_bbox
-    if (firstSlot) {
-      const b = firstSlot.bounds || firstSlot.geo_bbox;
-      if (b && b.length === 4) {
-        const [minLon, minLat, maxLon, maxLat] = b;
-        return [(minLat + maxLat) / 2, (minLon + maxLon) / 2];
-      }
+  // Determine initial center coordinates from real georeference only (never fabricated)
+  const getInitialCoordinates = () => {
+    if (hasRealBounds) {
+      const [minLon, minLat, maxLon, maxLat] = envBounds;
+      return [(minLat + maxLat) / 2, (minLon + maxLon) / 2];
     }
-    // Check result evidence
+    // Real coordinates parsed from backend evidence (if any)
     if (result?.evidence && Array.isArray(result.evidence)) {
       for (const ev of result.evidence) {
         if (ev.geo_coordinates) {
@@ -54,8 +60,8 @@ export default function InteractiveMapViewer({ result, slotImages, sessionId }) 
         }
       }
     }
-    // Default to Hyderabad / ISRO NRSC coordinates
-    return [17.4000, 78.5000];
+    // No real georeference available
+    return null;
   };
 
   // Fetch GeoJSON data if available
@@ -75,43 +81,22 @@ export default function InteractiveMapViewer({ result, slotImages, sessionId }) 
         } finally {
           if (!isCancelled) setIsLoading(false);
         }
-      } else {
-        // Construct fallback polygon from slotImages bounds or default
-        const [centerLat, centerLon] = getFallbackCoordinates();
-        const firstSlot = slotImages ? Object.values(slotImages).find(env => !!env) : null;
-        const b = firstSlot?.bounds || firstSlot?.geo_bbox;
-        const hasRealBounds = b && b.length === 4;
-
-        let coords;
-        if (hasRealBounds) {
-          const [minLon, minLat, maxLon, maxLat] = b;
-          coords = [[
-            [minLon, minLat],
-            [maxLon, minLat],
-            [maxLon, maxLat],
-            [minLon, maxLat],
-            [minLon, minLat],
-          ]];
-        } else {
-          const delta = 0.015;
-          coords = [[
-            [centerLon - delta, centerLat - delta],
-            [centerLon + delta, centerLat - delta],
-            [centerLon + delta, centerLat + delta],
-            [centerLon - delta, centerLat + delta],
-            [centerLon - delta, centerLat - delta],
-          ]];
-        }
-
-        const syntheticGeoJson = {
+      } else if (hasRealBounds) {
+        const [minLon, minLat, maxLon, maxLat] = envBounds;
+        const coords = [[
+          [minLon, minLat],
+          [maxLon, minLat],
+          [maxLon, maxLat],
+          [minLon, maxLat],
+          [minLon, minLat],
+        ]];
+        const footprintGeoJson = {
           type: 'FeatureCollection',
           features: [
             {
               type: 'Feature',
               properties: {
-                name: 'Mission Target Footprint',
-                category: result?.task || 'Observation AOI',
-                confidence: result?.confidence || 0.88,
+                name: 'Image Bounds Footprint',
               },
               geometry: {
                 type: 'Polygon',
@@ -120,7 +105,10 @@ export default function InteractiveMapViewer({ result, slotImages, sessionId }) 
             },
           ],
         };
-        setGeoData(syntheticGeoJson);
+        setGeoData(footprintGeoJson);
+      } else {
+        // Not georeferenced: never fabricate an AOI
+        setGeoData(null);
       }
     }
     loadGeoJson();
@@ -129,17 +117,17 @@ export default function InteractiveMapViewer({ result, slotImages, sessionId }) 
 
   // Initialize Leaflet Map
   useEffect(() => {
-    if (!mapContainerRef.current) return;
+    if (!mapContainerRef.current || !isGeoreferenced) return;
 
     if (!mapInstanceRef.current) {
       if (mapContainerRef.current._leaflet_id) {
         delete mapContainerRef.current._leaflet_id;
       }
 
-      const [initialLat, initialLon] = getFallbackCoordinates();
+      const initialCenter = getInitialCoordinates();
       const map = L.map(mapContainerRef.current, {
-        center: [initialLat, initialLon],
-        zoom: 13,
+        center: initialCenter || [0, 0],
+        zoom: initialCenter ? 13 : 2,
         zoomControl: false,
       });
 
@@ -270,12 +258,42 @@ export default function InteractiveMapViewer({ result, slotImages, sessionId }) 
           mapInstanceRef.current.fitBounds(bounds, { padding: [35, 35], maxZoom: 16 });
         }
       } catch (e) {
-        // fallback
-        const [lat, lon] = getFallbackCoordinates();
-        mapInstanceRef.current.setView([lat, lon], 14);
+        const fallbackCenter = getInitialCoordinates();
+        if (fallbackCenter) {
+          mapInstanceRef.current.setView(fallbackCenter, 14);
+        }
       }
     }
   };
+
+  // No real georeference: never render a fabricated map, coordinates, or default AOI
+  if (!isGeoreferenced) {
+    return (
+      <div
+        className="glass-panel"
+        style={{
+          width: '100%',
+          height: '420px',
+          borderRadius: '12px',
+          border: '1px solid var(--border-subtle)',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '0.4rem',
+          color: 'var(--text-muted)',
+          textAlign: 'center',
+          padding: '1rem',
+        }}
+      >
+        <MapPin size={28} style={{ opacity: 0.5 }} />
+        <span style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>Not georeferenced — map unavailable</span>
+        <span style={{ fontSize: '0.75rem', maxWidth: '340px' }}>
+          This image has no real bounds or CRS, so no map coordinates or AOI footprint are shown.
+        </span>
+      </div>
+    );
+  }
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '420px', borderRadius: '12px', overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
@@ -350,8 +368,8 @@ export default function InteractiveMapViewer({ result, slotImages, sessionId }) 
             width: 7, 
             height: 7, 
             borderRadius: '50%', 
-            background: (firstSlot?.tags?.geotiff || firstSlot?.filename?.toLowerCase().endsWith('.tif')) ? '#10b981' : '#f59e0b', 
-            boxShadow: (firstSlot?.tags?.geotiff || firstSlot?.filename?.toLowerCase().endsWith('.tif')) ? '0 0 8px #10b981' : '0 0 8px #f59e0b',
+            background: '#10b981', 
+            boxShadow: '0 0 8px #10b981',
             flexShrink: 0
           }} 
         />
@@ -366,15 +384,13 @@ export default function InteractiveMapViewer({ result, slotImages, sessionId }) 
         <span 
           style={{ 
             fontSize: '0.68rem', 
-            color: (firstSlot?.tags?.geotiff || firstSlot?.filename?.toLowerCase().endsWith('.tif')) ? '#10b981' : '#f59e0b',
+            color: '#10b981',
             borderLeft: '1px solid var(--border-subtle)',
             paddingLeft: '8px',
             whiteSpace: 'nowrap'
           }}
         >
-          {(firstSlot?.tags?.geotiff || firstSlot?.filename?.toLowerCase().endsWith('.tif')) 
-            ? '🛰️ Georeferenced (GeoTIFF)' 
-            : '📍 Default Reference Anchor: ISRO NRSC (Hyderabad) — Non-georeferenced image'}
+          🛰️ Georeferenced (real bounds/CRS)
         </span>
       </div>
 
@@ -400,8 +416,8 @@ export default function InteractiveMapViewer({ result, slotImages, sessionId }) 
         <Shield size={12} />
         <span>
           {result?.geojson_url 
-            ? `Vector GeoJSON Synchronized (${geoData?.features?.length || 1} zones)` 
-            : 'Standard Observation AOI'}
+            ? `GeoJSON Vector Layer (${geoData?.features?.length || 0} zones)` 
+            : 'AOI footprint from real image bounds'}
         </span>
       </div>
 

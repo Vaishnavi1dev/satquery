@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Layers, Droplets, Leaf, Activity, Sparkles, RefreshCw, BarChart2 } from 'lucide-react';
 import { api } from '../../api/client.js';
 
-export default function SpectralIndexViewer({ sessionId, activeImageId, originalThumbnail }) {
+export default function SpectralIndexViewer({ sessionId, activeImageId, originalThumbnail, isMultispectral = false }) {
   const [indexMode, setIndexMode] = useState('ndvi'); // 'ndvi' or 'ndwi'
   const [data, setData] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -59,7 +59,17 @@ export default function SpectralIndexViewer({ sessionId, activeImageId, original
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <Sparkles size={18} color="var(--cyan-400)" />
           <h3 style={{ fontSize: '0.95rem', fontWeight: 700 }}>Spectral Index Quick-Calculator</h3>
-          <span className="tag-pill mono" style={{ fontSize: '0.7rem' }}>Sentinel-2 B03 / B04 / B08 Bands</span>
+          {isMultispectral ? (
+            <span className="tag-pill mono" style={{ fontSize: '0.7rem' }}>Multispectral (≥4 bands) - NIR available</span>
+          ) : (
+            <span
+              className="tag-pill mono"
+              style={{ fontSize: '0.7rem', color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.45)' }}
+              title="This input is not a true ≥4-band multispectral scene. NIR is synthesised from RGB."
+            >
+              NIR estimated from RGB — not true multispectral
+            </span>
+          )}
         </div>
 
         <div style={{ display: 'flex', gap: '0.4rem', background: 'rgba(0,0,0,0.4)', padding: '3px', borderRadius: '8px' }}>
