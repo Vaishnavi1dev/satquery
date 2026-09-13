@@ -408,14 +408,12 @@ export default function App() {
 
                 {/* Two-Column Row: Pillar 2 & Pillar 3 */}
                 <div className="pillars-row-split">
-                  {/* Pillar 2: Calibrated Confidence */}
+                  {/* Pillar 2: Model-Reported Confidence */}
                   <ConfidenceGauge
                     confidence={executionResult.confidence}
                     uncertaintyFlag={executionResult.uncertainty_flag}
                     conflictDetected={executionResult.conflict_detected}
                     uncertaintyExplanation={executionResult.uncertainty_explanation}
-                    temperature={executionResult.calibration_temperature ?? 1.15}
-                    rawConfidence={executionResult.raw_confidence}
                   />
 
                   {/* Pillar 3: Visual Evidence Overlays */}

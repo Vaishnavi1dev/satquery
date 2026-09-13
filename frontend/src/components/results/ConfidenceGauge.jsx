@@ -1,7 +1,7 @@
 import React from 'react';
 import { ShieldCheck, AlertTriangle, Award, ShieldAlert } from 'lucide-react';
 
-export default function ConfidenceGauge({ confidence, rawConfidence, uncertaintyFlag, conflictDetected, uncertaintyExplanation, temperature = 1.15 }) {
+export default function ConfidenceGauge({ confidence, uncertaintyFlag, conflictDetected, uncertaintyExplanation }) {
   const hasConfidence = typeof confidence === 'number';
   const confValue = hasConfidence ? confidence : null;
   const pct = hasConfidence
@@ -41,7 +41,7 @@ export default function ConfidenceGauge({ confidence, rawConfidence, uncertainty
   return (
     <div className="pillar-confidence-card glass-panel">
       <div className="pillar-header-badge tag-pill" style={{ background: uncertaintyFlag ? 'rgba(245, 158, 11, 0.15)' : 'rgba(16, 185, 129, 0.15)', color: uncertaintyFlag ? 'var(--warning)' : 'var(--success)' }}>
-        PILLAR 2 • CALIBRATED CONFIDENCE & UNCERTAINTY
+        PILLAR 2 • MODEL-REPORTED CONFIDENCE & UNCERTAINTY
       </div>
 
       <div className="confidence-gauge-container">
@@ -86,25 +86,8 @@ export default function ConfidenceGauge({ confidence, rawConfidence, uncertainty
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', marginTop: '0.5rem' }}>
         <div className="confidence-metric-row">
-          <span>Calibration Mode</span>
-          <span style={{ color: 'var(--cyan-400)' }}>Fixed-Temperature Logit Rescaling</span>
-        </div>
-        <div
-          className="confidence-metric-row"
-          title="A fixed softening constant applied to logits; it is not fitted on a calibration set."
-        >
-          <span>Temperature (T, fixed heuristic — not fitted)</span>
-          <span>{temperature.toFixed(2)}</span>
-        </div>
-        <div className="confidence-metric-row">
-          <span>Raw → Calibrated</span>
-          <span>
-            {typeof rawConfidence === 'number' && hasConfidence
-              ? `${Math.round(rawConfidence * 100)}% → ${pct}%`
-              : hasConfidence
-              ? `${pct}%`
-              : 'not reported'}
-          </span>
+          <span>Confidence Source</span>
+          <span>Model-reported (uncalibrated, no fitted calibration)</span>
         </div>
         <div className="confidence-metric-row">
           <span>Confidence Threshold Flag</span>

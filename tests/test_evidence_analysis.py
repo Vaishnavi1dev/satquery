@@ -311,6 +311,9 @@ def test_common_result_json_serializable(tmp_path, agent):
     assert "answer" in parsed
     assert "confidence" in parsed
     assert parsed["confidence"] is None or 0.0 <= parsed["confidence"] <= 1.0
+    assert parsed["calibration_method"] == "none"
+    assert parsed["calibration_temperature"] is None
+    assert parsed["confidence"] == parsed["raw_confidence"]
     assert "evidence" in parsed
     assert isinstance(parsed["evidence"], list)
     assert "trace" in parsed
@@ -452,3 +455,42 @@ def test_explainable_6_phase_trace(tmp_path, agent):
     expected_phases = ["InputValidation", "TaskIdentification", "ModelSelection", "Execution", "EvidenceCollection", "FinalResult"]
     for phase in expected_phases:
         assert phase in step_names, f"Phase '{phase}' missing from trace steps: {step_names}"
+
+
+def test_aggregator_reports_raw_confidence_without_temperature_scaling():
+    """New contract: confidence is the raw aggregate; no post-hoc temperature scaling."""
+    single = ToolOutput(
+        tool_name="rs-caption",
+        model_name="EarthDial-4B",
+        text="A scene description.",
+        confidence=0.62,
+        evidence_type="analysed_image",
+    )
+    agg_single = OutputAggregator.aggregate([single])
+    assert agg_single.confidence == agg_single.raw_confidence == 0.62
+    assert agg_single.calibration_method == "none"
+    assert agg_single.calibration_temperature is None
+    # Raw 0.62 is below the 0.65 threshold, so the low-confidence flag must fire.
+    assert agg_single.uncertainty_flag is True
+
+    high = ToolOutput(
+        tool_name="rs-vqa",
+        model_name="EarthDial-4B",
+        text="Answer.",
+        confidence=0.80,
+        evidence_type="analysed_image",
+    )
+    low = ToolOutput(
+        tool_name="opt-sar-fusion",
+        model_name="DOFA ViT-B",
+        text="Cross-check.",
+        confidence=0.20,
+        evidence_type="opt_sar_pair",
+        metadata={"honesty_gate_triggered": True},
+    )
+    agg_multi = OutputAggregator.aggregate([high, low])
+    assert agg_multi.confidence == agg_multi.raw_confidence == 0.5
+    assert agg_multi.calibration_method == "none"
+    assert agg_multi.calibration_temperature is None
+    assert agg_multi.conflict_detected is True
+    assert agg_multi.uncertainty_flag is True

@@ -193,7 +193,7 @@ satquery/
 | IMP-046 | Tool selector: registry query → permitted params → execution plan (sequential/parallel) | AGT-003/006 |
 | IMP-047 | Planner templates: single-tool, dual-tool (fusion), conditional (grounding fallback) | AGT-004 |
 | IMP-048 | Executor: registry invocation, timeout, retry, error mapping (VAL_*, MDL_*) | AGT-005, Contract §21 |
-| IMP-049 | Output aggregator: text merge, box union, confidence combination (min/weighted-mean), evidence pointer collection | FR-012, M-10 |
+| IMP-049 | Output aggregator: text merge, box union, raw-confidence arithmetic mean (no post-hoc temperature scaling), evidence pointer collection | FR-012, M-10 |
 | IMP-050 | Evidence renderer: boxes/heatmaps → overlays on original imagery (tiling-aware) | FR-012, TRD §7 |
 | IMP-051 | Trace emitter: full execution summary (task, models, params, outputs, confidence, evidence, latency) | FR-005, PRD §7 |
 | IMP-052 | Controller API: `/query` (image(s) + text) → `{answer, evidence, trace, report_url}` | API_Contracts §7 |

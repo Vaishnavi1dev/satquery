@@ -273,7 +273,7 @@ benchmark-rgb:
 - **Execution Trace:** Table of steps (tool, model, params, latency, output summary)
 - **Answer:** Primary text response
 - **Evidence:** Embedded overlays (base64 PNG or linked files)
-- **Confidence:** Per-component + aggregated, with semantics label
+- **Confidence:** Per-component raw model-reported values; aggregated as the arithmetic mean across specialists, with a divergence/uncertainty flag and semantics label (no post-hoc temperature scaling)
 - **Footer:** Model versions, registry version, reproducibility checksums
 
 ---

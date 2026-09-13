@@ -10,7 +10,7 @@ from app.agent.classifier import TaskClassifier
 from app.agent.validator import AgentInputValidator
 from app.agent.planner import ExecutionPlanner
 from app.agent.executor import PlanExecutor
-from app.agent.aggregator import OutputAggregator, AggregatedResponse, CALIBRATION_TEMPERATURE
+from app.agent.aggregator import OutputAggregator, AggregatedResponse
 from app.events.stream import EventStream, TraceView
 from app.evidence.renderer import EvidenceRenderer
 from app.reports.generator import ReportGenerator
@@ -26,8 +26,8 @@ class QueryExecutionResult(BaseModel):
     answer: str
     confidence: Optional[float] = None
     raw_confidence: Optional[float] = None
-    calibration_temperature: float = CALIBRATION_TEMPERATURE
-    calibration_method: str = "temperature_scaling"
+    calibration_temperature: Optional[float] = None
+    calibration_method: str = "none"
     uncertainty_flag: bool = False
     conflict_detected: bool = False
     uncertainty_explanation: Optional[str] = None
@@ -167,10 +167,10 @@ class AgentController:
                 {
                     "total_evidence_items": len(aggregated.evidence),
                     "boxes_detected": len(aggregated.boxes) if aggregated.boxes else 0,
-                    "calibrated_confidence": aggregated.confidence,
+                    "confidence": aggregated.confidence,
                     "raw_confidence": aggregated.raw_confidence,
-                    "calibration_temperature": aggregated.calibration_temperature,
-                    "calibration_method": "temperature_scaling",
+                    "confidence_basis": "raw_model_reported",
+                    "calibration_method": aggregated.calibration_method,
                     "uncertainty_flag": aggregated.uncertainty_flag,
                     "conflict_detected": aggregated.conflict_detected,
                     "explanation": aggregated.uncertainty_explanation
@@ -331,7 +331,7 @@ class AgentController:
                 confidence=aggregated.confidence,
                 raw_confidence=aggregated.raw_confidence,
                 calibration_temperature=aggregated.calibration_temperature,
-                calibration_method="temperature_scaling",
+                calibration_method=aggregated.calibration_method,
                 uncertainty_flag=aggregated.uncertainty_flag,
                 conflict_detected=aggregated.conflict_detected,
                 uncertainty_explanation=aggregated.uncertainty_explanation,

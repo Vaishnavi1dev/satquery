@@ -1009,7 +1009,7 @@ h6 {
   }
 }
 
-/* Pillar 2: Calibrated Confidence */
+/* Pillar 2: Model-Reported Confidence */
 .pillar-confidence-card {
   padding: 1.5rem;
   border-radius: 14px;

@@ -296,10 +296,7 @@ export default function HomePage({ onNavigateToAsk }) {
               Uncertainty & Disagreement Reporting
             </h4>
             <p style={{ fontSize: '0.85rem', color: '#cbd5e1', lineHeight: 1.55 }}>
-              For critical Earth Observation tasks, it matters that the system reports what it does and does not know.
-              SatQuery applies post-hoc fixed-temperature logit rescaling (<em>T</em> = 1.15, not fitted), reports a
-              <strong> cross-specialist divergence flag</strong> when specialist outputs contradict one another, and
-              presents an <strong>averaged confidence</strong>.
+              For critical Earth Observation tasks, it matters that the system reports what it does and does not know. The confidence shown is the <strong>model/tool-reported confidence</strong>, reported directly by the model or tool and left uncalibrated; no post-hoc temperature scaling or other fitted calibration is applied. SatQuery also reports a <strong>cross-specialist divergence flag</strong> when specialist outputs contradict one another, and presents an <strong>averaged confidence</strong> for multi-specialist queries.
             </p>
           </div>
         </div>
