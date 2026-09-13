@@ -7,84 +7,58 @@ import {
   Cpu,
   ArrowRight,
   CheckCircle2,
-  TrendingUp,
-  Sparkles,
-  Satellite
+  Sparkles
 } from 'lucide-react';
 
 export default function HomePage({ onNavigateToAsk }) {
   const specialistModels = [
     {
-      id: 'earthdial-vqa',
-      name: 'EarthDial-4B',
-      role: 'Single-Scene Optical VQA / Captioning / Grounding',
-      modality: 'Optical (Inputs Normalized to RGB)',
-      resolution: '512x512 VLM Input',
-      capabilities: ['Visual Question Answering (Optical)', 'Land-Cover Captioning', 'Text-Guided Region Grounding'],
+      id: 'model-a',
+      name: 'Model A · EarthDial-4B',
+      role: 'Single-Scene Vision-Language Specialist',
+      modality: 'Optical (RGB) · Multispectral · SAR',
+      resolution: 'InternVL2-4B + Phi-3-mini (LoRA-tuned)',
+      capabilities: ['Visual Question Answering & Land-Cover Classification', 'Image Captioning', 'Text-Guided Object Grounding'],
       color: 'var(--optical-color)',
       bg: 'var(--optical-bg)',
       border: 'var(--optical-border)',
       icon: Layers,
     },
     {
-      id: 'dofa',
-      name: 'DOFA ViT-B + Cross-Attention Head',
+      id: 'model-b',
+      name: 'Model B · DOFA ViT-B + Cross-Attention Head',
       role: 'Cross-Modal Optical + SAR Fusion Specialist',
-      modality: 'Size-Harmonized Optical + SAR Fusion',
-      resolution: '512x512 Size-Harmonized',
-      capabilities: ['Wavelength-Conditioned Feature Extraction', 'Optical <-> SAR Cross-Attention Fusion', 'Joint Land-Cover Analysis'],
+      modality: 'Optical + SAR',
+      resolution: 'Wavelength-Conditioned ViT-B',
+      capabilities: ['Wavelength-Conditioned Feature Extraction', 'Optical ↔ SAR Cross-Attention Fusion', 'Joint Land-Cover Analysis'],
       color: 'var(--sar-color)',
       bg: 'var(--sar-bg)',
       border: 'var(--sar-border)',
       icon: Radio,
     },
     {
-      id: 'earthdial-change',
-      name: 'EarthDial-4B Multi-Image Engine',
-      role: 'Bi-Temporal Change Specialist',
-      modality: 'Bi-Temporal Image Pair (T1, T2)',
-      resolution: '512x512 Co-Registered',
-      capabilities: ['Change Description & Change-VQA', 'Difference-Mask Localization', 'Pixel-Difference Change Regions (GeoJSON only when the input is georeferenced)'],
+      id: 'model-c',
+      name: 'Model C · EarthDial-4B Multi-Modal',
+      role: 'Bi-Temporal Change & Multi-Temporal Sequence Specialist',
+      modality: 'T1, T2 … TN Image Sequences',
+      resolution: 'Multi-Image Engine (Phi-3-mini)',
+      capabilities: ['Bi-Temporal Change Description & Change-VQA', 'Difference-Mask Localization', 'Per-Transition Measured Pixel Difference'],
       color: 'var(--temporal-color)',
       bg: 'var(--temporal-bg)',
       border: 'var(--temporal-border)',
       icon: Clock,
     },
     {
-      id: 'earthdial-sequence',
-      name: 'EarthDial-4B Multi-Temporal Engine',
-      role: 'T1...TN Sequence Specialist',
-      modality: 'T1...TN Multi-Temporal Sequence',
-      resolution: '512x512 per Epoch',
-      capabilities: ['Per-Transition Measured Pixel Difference (T1 -> T2 -> ...)'],
-      color: '#34d399',
-      bg: 'rgba(52, 211, 153, 0.12)',
-      border: 'rgba(52, 211, 153, 0.3)',
-      icon: TrendingUp,
-    },
-    {
-      id: 'rs-ground',
-      name: 'EarthDial-4B Grounding Head',
-      role: 'Text-Guided Grounding Specialist',
-      modality: 'Single Scene + Referring Expression',
-      resolution: '512x512 Bounding-Box Output',
-      capabilities: ['Bounding-Box Localization', 'Returns no box if it cannot localize', 'Referring-Expression Grounding'],
+      id: 'agent-reasoner',
+      name: 'Agent Reasoner',
+      role: 'Rule & Semantic Classifier + Consensus Aggregator',
+      modality: 'Deterministic (CPU)',
+      resolution: 'Instant Routing',
+      capabilities: ['Input Validation & Intent Classification', 'Model Selection & Linear Step Planning', 'Confidence Averaging + Disagreement Flag'],
       color: 'var(--cyan-400)',
       bg: 'rgba(6, 182, 212, 0.12)',
       border: 'rgba(6, 182, 212, 0.3)',
       icon: Cpu,
-    },
-    {
-      id: 'earthdial-ms',
-      name: 'EarthDial-4B MS/SAR',
-      role: 'Multispectral & SAR Specialist',
-      modality: 'Sentinel-2 MSI / Sentinel-1 SAR',
-      resolution: '512x512 per Scene',
-      capabilities: ['Multispectral Scene Understanding', 'SAR Backscatter Description'],
-      color: 'var(--sar-color)',
-      bg: 'var(--sar-bg)',
-      border: 'var(--sar-border)',
-      icon: Satellite,
     },
   ];
 
@@ -202,11 +176,24 @@ export default function HomePage({ onNavigateToAsk }) {
           </div>
         </div>
 
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))',
-          gap: '1.25rem',
-        }}>
+        <style>{`
+          .specialist-registry-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 1.25rem;
+          }
+          @media (max-width: 900px) {
+            .specialist-registry-grid {
+              grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+          }
+          @media (max-width: 520px) {
+            .specialist-registry-grid {
+              grid-template-columns: minmax(0, 1fr);
+            }
+          }
+        `}</style>
+        <div className="specialist-registry-grid">
           {specialistModels.map((m) => {
             const IconComponent = m.icon;
             return (
