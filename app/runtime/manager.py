@@ -162,10 +162,40 @@ class ModelRuntimeManager:
         if model_key in self.active_models:
             return self.active_models[model_key].get("handle")
 
-        # Original EarthDial weights may not be present yet. Fall back to the
-        # fine-tuned adapter by aliasing the same handle (no extra VRAM), so the
-        # multi-temporal tools keep running in real mode.
-        if model_key == "earthdial-original" and self._artifact_dir(model_key) is None:
+        # Evict the conflicting EarthDial load group before loading a new one so the
+        # fine-tuned adapter and the original weights never coexist on the GPU.
+        # ``active_models`` is keyed by model key, so membership must be tested on
+        # each record's load_group rather than on the group name itself.
+        def _group_active(group: str) -> bool:
+            return any(rec.get("load_group") == group for rec in self.active_models.values())
+
+        if load_group == "llm_secondary" and _group_active("llm_primary"):
+            logger.info("Evicting llm_primary to accommodate llm_secondary under VRAM budget.")
+            self.unload_group("llm_primary")
+        elif load_group == "llm_primary" and _group_active("llm_secondary"):
+            logger.info("Evicting llm_secondary to accommodate llm_primary under VRAM budget.")
+            self.unload_group("llm_secondary")
+
+        artifact_dir = self._artifact_dir(model_key)
+
+        logger.info(f"Loading {model_key} (Group: {load_group}, Device: {self.device}, Mode: {self.mode})...")
+        handle = None
+        error = None
+        if self.mode == "real":
+            if artifact_dir is None:
+                error = f"No checkpoint artifact found for '{model_key}'"
+            else:
+                try:
+                    handle = self._load_real_model(model_key)
+                except Exception as exc:
+                    error = f"{type(exc).__name__}: {exc}"
+                    self.load_errors[model_key] = error
+                    logger.warning("Checkpoint load failed for %s; using simulation fallback: %s", model_key, error)
+
+        # Original EarthDial weights may be missing or fail to load. Fall back to the
+        # fine-tuned adapter by aliasing the same handle object (no extra VRAM), so the
+        # multi-temporal tools keep running in real mode instead of dropping to simulation.
+        if handle is None and model_key == "earthdial-original" and self.mode == "real":
             try:
                 fallback_handle = self.ensure_model_loaded("earthdial-4b", "llm_primary")
             except Exception as exc:
@@ -173,8 +203,9 @@ class ModelRuntimeManager:
                 fallback_handle = None
             if fallback_handle is not None:
                 fallback_record = self.active_models.get("earthdial-4b", {})
+                reason = error or "original EarthDial weights unavailable"
                 logger.info(
-                    "Original EarthDial weights not found; aliasing the fine-tuned earthdial-4b handle for earthdial-original."
+                    "Aliasing the fine-tuned earthdial-4b handle for earthdial-original (%s).", reason
                 )
                 self.active_models[model_key] = {
                     "loaded_at": time.time(),
@@ -182,28 +213,12 @@ class ModelRuntimeManager:
                     "device": fallback_record.get("device", self.device),
                     "handle": fallback_handle,
                     "backend": fallback_record.get("backend", "checkpoint"),
-                    "error": "original EarthDial weights not found at models/earthdial; using fine-tuned adapter",
+                    "error": (
+                        f"original EarthDial load failed ({reason}); "
+                        "using fine-tuned earthdial-4b adapter handle"
+                    ),
                 }
                 return fallback_handle
-
-        # Evict conflicting load group if memory is constrained
-        if load_group == "llm_secondary" and "llm_primary" in self.active_models:
-            logger.info("Evicting llm_primary to accommodate llm_secondary under VRAM budget.")
-            self.unload_group("llm_primary")
-        elif load_group == "llm_primary" and "llm_secondary" in self.active_models:
-            logger.info("Evicting llm_secondary to accommodate llm_primary under VRAM budget.")
-            self.unload_group("llm_secondary")
-
-        logger.info(f"Loading {model_key} (Group: {load_group}, Device: {self.device}, Mode: {self.mode})...")
-        handle = None
-        error = None
-        if self.mode == "real":
-            try:
-                handle = self._load_real_model(model_key)
-            except Exception as exc:
-                error = f"{type(exc).__name__}: {exc}"
-                self.load_errors[model_key] = error
-                logger.warning("Checkpoint load failed for %s; using simulation fallback: %s", model_key, error)
 
         self.active_models[model_key] = {
             "loaded_at": time.time(),
@@ -541,8 +556,24 @@ class ModelRuntimeManager:
             return False
 
     def run_earthdial(self, query: str, image_paths: List[str], parameters: Dict[str, Any]):
-        handle = self.get_model_handle("earthdial-4b")
-        if not handle or handle.get("kind") != "earthdial":
+        handle = None
+        requested_key = (parameters or {}).get("model_key")
+        if requested_key:
+            candidate = self.get_model_handle(requested_key)
+            if candidate and candidate.get("kind") == "earthdial":
+                handle = candidate
+
+        if handle is None:
+            # Load-group eviction keeps only one EarthDial variant resident at a time.
+            # The genuine original weights are preferred now that they load; if they
+            # were aliased to the fine-tuned adapter this resolves to the same object.
+            for key in ("earthdial-original", "earthdial-4b"):
+                candidate = self.get_model_handle(key)
+                if candidate and candidate.get("kind") == "earthdial":
+                    handle = candidate
+                    break
+
+        if not handle:
             return None
 
         model = handle["model"]

@@ -118,6 +118,7 @@ class MultiTemporalSequenceTool(ToolBase):
         temporal_events: List[Dict[str, Any]] = []
         all_boxes: List[List[int]] = []
         step_narratives: List[str] = []
+        model_step_texts: List[Optional[str]] = []
 
         cumulative_delta = 0.0
         total_steps = len(images) - 1
@@ -183,9 +184,27 @@ class MultiTemporalSequenceTool(ToolBase):
                         f"[{x1}, {y1}, {x2}, {y2}] with +{step_delta}% cumulative perturbation."
                     )
 
+            # Per-transition model call: compare ONLY this consecutive pair so the
+            # model describes each transition rather than collapsing to one generic T1-vs-TN sentence.
+            model_text: Optional[str] = None
+            if fp_a and fp_b and Path(fp_a).exists() and Path(fp_b).exists():
+                prompt = (
+                    f"Compare these two co-registered satellite observations of the same area: "
+                    f"the earlier observation (T{i+1}) and the later observation (T{i+2}). "
+                    f"Concretely describe what changed between them, focusing on new construction, "
+                    f"vegetation change, water change, or land transformation. Be concise."
+                )
+                try:
+                    real = self.runtime_mgr.run_earthdial(prompt, [fp_a, fp_b], clean_params)
+                    if real and real.get("text"):
+                        model_text = real["text"].strip() or None
+                except Exception as exc:
+                    self.runtime_mgr.load_errors[self.model_key] = f"Inference: {type(exc).__name__}: {exc}"
+
             cumulative_delta += step_delta
             all_boxes.append(box)
             step_narratives.append(desc)
+            model_step_texts.append(model_text)
             step_conf = round(0.92 - (i * 0.02), 3)
 
             temporal_events.append({
@@ -199,17 +218,40 @@ class MultiTemporalSequenceTool(ToolBase):
                 "cumulative_delta_pct": round(cumulative_delta, 1),
                 "region": box,
                 "description": desc,
+                "model_description": model_text,
                 "confidence": step_conf
             })
 
         all_measured = total_steps > 0 and measured_steps == total_steps
+        any_model_text = any(model_step_texts)
 
-        # Synthesize overarching timeline report (truth-based: no fabricated consistency).
-        summary_intro = (
+        # Compose a genuine multi-temporal narrative: one bullet per consecutive transition,
+        # each carrying its own model description (or the measured/fallback description).
+        header = (
             f"Multi-Temporal Sequence Analysis across {num_steps} sequential satellite acquisitions "
-            f"(T1 through T{num_steps}) reveals continuous directional land transformation:\n\n"
+            f"(T1 through T{num_steps}):"
         )
-        events_text = "\n".join(f"• {ev['description']}" for ev in temporal_events)
+        phase_lines: List[str] = []
+        for i, ev in enumerate(temporal_events):
+            step_label = ev["transition"]
+            box = ev["region"]
+            delta = ev["delta_pct"]
+            model_text = model_step_texts[i] if i < len(model_step_texts) else None
+            if model_text:
+                body = model_text
+            else:
+                desc = ev["description"]
+                prefix = f"Phase {i+1} ({step_label}): "
+                body = desc[len(prefix):] if desc.startswith(prefix) else desc
+            phase_lines.append(
+                f"• Phase {i+1} ({step_label}): {body} "
+                f"(measured surface difference {delta:.1f}%, "
+                f"region [{box[0]}, {box[1]}, {box[2]}, {box[3]}])."
+            )
+        phase_block = "\n".join(phase_lines)
+
+        # Closing synthesis: honest measured mean/cumulative difference, never a fabricated
+        # cycle-consistency value. Always mentions "cumulative", including fallback paths.
         if all_measured:
             mean_delta = cumulative_delta / total_steps if total_steps else 0.0
             synthesis_line = (
@@ -221,39 +263,8 @@ class MultiTemporalSequenceTool(ToolBase):
                 f"Synthesis Trend: across the entire sequence from T1 to T{num_steps}, the cumulative "
                 f"surface difference was {cumulative_delta:+.1f}%."
             )
-        full_text = summary_intro + events_text + "\n\n" + synthesis_line
 
-        # Attempt a real EarthDial-4B multi-image narrative over the readable sequence.
-        # The measured timeline above remains the structured/fallback layer.
-        model_narrative: Optional[str] = None
-        readable_paths = [
-            img.filepath for img in images
-            if getattr(img, "filepath", None) and Path(img.filepath).exists()
-        ]
-        if len(readable_paths) >= 2:
-            prompt = (
-                f"You are analyzing a chronological sequence of {num_steps} co-registered satellite observations of the same area, "
-                f"from T1 (earliest) to T{num_steps} (latest). Describe how the scene changes over time: new construction, "
-                f"vegetation change, water change, or land transformation. Be concise. Timeline question: {query}"
-            )
-            real = None
-            try:
-                real = self.runtime_mgr.run_earthdial(prompt, readable_paths, clean_params)
-            except Exception as exc:
-                self.runtime_mgr.load_errors[self.model_key] = f"Inference: {type(exc).__name__}: {exc}"
-
-            if real and real.get("text"):
-                model_narrative = real["text"].strip() or None
-
-        if model_narrative:
-            heading = "Structured Timeline (measured)" if all_measured else "Structured Timeline (rule-based)"
-            appendix = "\n".join(f"• {ev['description']}" for ev in temporal_events)
-            full_text = (
-                f"{model_narrative}\n\n"
-                f"{heading}:\n"
-                f"{appendix}\n\n"
-                f"{synthesis_line}"
-            )
+        full_text = header + "\n" + phase_block + "\n\n" + synthesis_line
 
         evidence_items = [
             {
@@ -294,7 +305,8 @@ class MultiTemporalSequenceTool(ToolBase):
                 "temporal_events": temporal_events,
                 "cumulative_delta_pct": round(cumulative_delta, 1),
                 "cycle_consistency": None,
-                "inference_backend": "checkpoint" if model_narrative else "rule_based",
-                "model_narrative": model_narrative
+                "inference_backend": "checkpoint" if any_model_text else "rule_based",
+                "model_step_texts": model_step_texts,
+                "model_narrative": " ".join(t for t in model_step_texts if t) or None
             }
         )

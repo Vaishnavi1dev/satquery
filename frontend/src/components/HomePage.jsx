@@ -228,17 +228,17 @@ export default function HomePage({ onNavigateToAsk, onLaunchDemo }) {
         </div>
       </section>
 
-      {/* 2. Interactive Mission Case Studies & Benchmarks */}
+      {/* 2. Example Workflows & Query Templates */}
       <section style={{ maxWidth: '1120px', margin: '2rem auto 0', padding: '1rem' }}>
         <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
           <span className="badge" style={{ color: '#c084fc', background: 'rgba(192, 132, 252, 0.12)' }}>
-            TACTICAL CASE STUDIES
+            ILLUSTRATIVE WORKFLOW TEMPLATES
           </span>
           <h2 style={{ fontSize: '1.85rem', fontWeight: 800, marginTop: '0.5rem', color: '#ffffff' }}>
-            Mission Scenarios & Interactive Case Studies
+            Example Workflows & Query Templates
           </h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', maxWidth: '640px', margin: '0.4rem auto 0', lineHeight: 1.5 }}>
-            Real-world Earth Observation challenges showcasing how multi-model evidence fusion solves problems single-sensor models cannot.
+            Illustrative example workflows showing how SatQuery's multi-model evidence fusion can be applied to common Earth Observation tasks. These scenarios are demonstrations, not records of real missions.
           </p>
         </div>
 
@@ -285,22 +285,24 @@ export default function HomePage({ onNavigateToAsk, onLaunchDemo }) {
                   </h3>
                   <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                     <span className="tag-pill" style={{ color: 'var(--cyan-400)', background: 'rgba(6, 182, 212, 0.12)' }}>
-                      VERIFIED AUDIT
-                    </span>
-                    <span className="tag-pill mono" style={{ background: 'rgba(255, 255, 255, 0.05)' }}>
-                      MISSION ID: PS-26167-{activeCaseTab.toUpperCase()}
+                      EXAMPLE WORKFLOW
                     </span>
                   </div>
                 </div>
 
-                <button 
-                  className="btn btn-primary btn-sm"
-                  onClick={() => onLaunchDemo && onLaunchDemo(c.presetId)}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 1rem' }}
-                >
-                  <Play size={14} />
-                  <span>Run Scenario in Ask SatQuery</span>
-                </button>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.5rem', maxWidth: '320px' }}>
+                  <button 
+                    className="btn btn-primary btn-sm"
+                    onClick={() => onLaunchDemo && onLaunchDemo(c.presetId)}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 1rem' }}
+                  >
+                    <Play size={14} />
+                    <span>Run This Workflow</span>
+                  </button>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.45, textAlign: 'right' }}>
+                    Demo images: clicking Run loads bundled benchmark sample scenes for demonstration — they are not imagery of the scenario described above.
+                  </div>
+                </div>
               </div>
 
               {/* Grid: Scenario & Solution */}
@@ -312,7 +314,7 @@ export default function HomePage({ onNavigateToAsk, onLaunchDemo }) {
               }}>
                 <div style={{ padding: '1.25rem', borderRadius: 12, background: 'rgba(239, 68, 68, 0.05)', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
                   <div style={{ fontSize: '0.8rem', color: '#fca5a5', fontWeight: 700, marginBottom: '0.4rem', textTransform: 'uppercase' }}>
-                    Operational Challenge
+                    Illustrative Scenario
                   </div>
                   <p style={{ fontSize: '0.85rem', color: '#cbd5e1', lineHeight: 1.55 }}>
                     {c.scenario}
