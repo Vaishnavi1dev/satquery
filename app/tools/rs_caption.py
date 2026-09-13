@@ -4,6 +4,42 @@ from typing import Dict, Any, Optional
 from app.tools.base import ToolBase, ToolOutput
 
 
+OPTICAL_CAPTION_MODEL_KEY = "earthdial-original"
+MULTISPECTRAL_CAPTION_MODEL_KEY = "earthdial-ms"
+
+DESCRIPTION_LABEL = "Scene description (EarthDial-4B): "
+
+# Water-claim phrases that are unsupported when the measured water fraction is
+# negligible. Ordered longest / most-specific first so compound phrases are
+# removed whole before the bare ``water`` token.
+_WATER_CLAIM_PATTERNS = (
+    r"\bopen\s+water\s+bodies\b",
+    r"\bwater\s+bodies\b",
+    r"\bwater\s+body\b",
+    r"\binland\s+waters?\b",
+    r"\bcoastal\s+wetlands?\b",
+    r"\bcoastal\b",
+    r"\bopen\s+water\b",
+    r"\bwaters?\b",
+)
+
+WATER_SUPPRESSION_NOTE = " (pixel analysis indicates no significant water.)"
+
+
+def _caption_model_key(modality: str) -> str:
+    """Select the caption checkpoint by modality.
+
+    Optical scenes are described by the original general-purpose EarthDial-4B RGB
+    checkpoint, which produces grounded scene descriptions. Multispectral and SAR
+    inputs keep the multispectral checkpoint. The caption tool intentionally does
+    not use the generic ``earthdial_model_key_for`` helper, which routes optical to
+    the fine-tuned BigEarthNet adapter that hallucinates water on generic prompts.
+    """
+    if modality in ("multispectral", "sar"):
+        return MULTISPECTRAL_CAPTION_MODEL_KEY
+    return OPTICAL_CAPTION_MODEL_KEY
+
+
 def _modality_label(modality: str) -> str:
     """Human-readable modality label used in the caption prompt."""
     return {
@@ -46,6 +82,32 @@ def _correct_modality_claim(text: str, modality: str) -> str:
     cleaned = _normalize_modality_text(cleaned)
     prefix = f"Observation modality: {_modality_prefix_label(modality)}. "
     return (prefix + cleaned).strip()
+
+
+def _mentions_water(text: str) -> bool:
+    """True when the text asserts any water/coastal presence."""
+    return re.search(r"\bwater\b|\bwaters\b|\bcoastal\b", text, flags=re.IGNORECASE) is not None
+
+
+def _suppress_unsupported_water(text: str) -> str:
+    """Strip unsupported water claims while keeping the rest of the sentence.
+
+    Removes water/coastal phrases and any comma-separated fragment left empty by
+    that removal; all other content is preserved verbatim. Returns ``""`` when the
+    sentence asserted nothing but water.
+    """
+    cleaned = text
+    for pattern in _WATER_CLAIM_PATTERNS:
+        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
+    parts = [part.strip() for part in cleaned.split(",")]
+    parts = [part for part in parts if part.strip(" \t.;:")]
+    cleaned = ", ".join(parts)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    cleaned = re.sub(r"\s+([,.;:!?])", r"\1", cleaned)
+    cleaned = re.sub(r"([,;:])\s*(?=[,;:])", "", cleaned).strip(" ,;:")
+    if cleaned and cleaned[-1] not in ".!?":
+        cleaned += "."
+    return cleaned
 
 
 def _measure_composition(filepath: str) -> Optional[Dict[str, float]]:
@@ -132,14 +194,21 @@ class SingleImageCaptionTool(ToolBase):
         modality = self.normalize_modality(
             getattr(envelope, "modality", None) or inputs.get("modality") or "optical"
         )
-        earthdial_key = self.runtime_mgr.earthdial_model_key_for([modality], self.model_key)
+        # Captioning overrides the generic modality routing: optical scenes use the
+        # original general-purpose RGB checkpoint, while MS/SAR keep earthdial-ms.
+        earthdial_key = _caption_model_key(modality)
         self.runtime_mgr.ensure_model_loaded(earthdial_key, self.load_group)
 
         real_result = None
         if envelope and getattr(envelope, "filepath", None):
             try:
+                prompt = (
+                    f"Describe this {_modality_label(modality)} scene in one or two factual sentences. "
+                    "List the main visible objects (vehicles, roads, buildings, water, vegetation) "
+                    "and the land cover."
+                )
                 real_result = self.runtime_mgr.run_earthdial(
-                    f"Describe this {_modality_label(modality)} remote-sensing scene, land cover, and major visible objects.",
+                    prompt,
                     [envelope.filepath],
                     clean_params,
                     model_key=earthdial_key,
@@ -157,9 +226,20 @@ class SingleImageCaptionTool(ToolBase):
         model_text = self.usable_model_text(real_result)
         corrected_model_text = _correct_modality_claim(model_text, modality) if model_text else None
 
-        attribution = (
-            "Model-generated caption (EarthDial-4B; may not fully match the visual content): "
-        )
+        # Water-consistency guard: the adapted model can assert water even when this
+        # image's pixels contain almost none. Only suppress when a genuine measurement
+        # exists, the measured water fraction is negligible, and the model claimed
+        # water; the remaining sentence content is left untouched.
+        if (
+            composition is not None
+            and corrected_model_text
+            and composition["water_pct"] < 5.0
+            and _mentions_water(corrected_model_text)
+        ):
+            suppressed = _suppress_unsupported_water(corrected_model_text)
+            corrected_model_text = (
+                suppressed + WATER_SUPPRESSION_NOTE if suppressed else WATER_SUPPRESSION_NOTE.strip()
+            )
 
         if composition is not None:
             # PRIMARY, factual line measured directly from the image's pixels.
@@ -172,12 +252,12 @@ class SingleImageCaptionTool(ToolBase):
             )
             text += "\n\n" + _qualitative_scene_sentence(modality)
             if corrected_model_text:
-                text += "\n\n" + attribution + corrected_model_text
+                text += "\n\n" + DESCRIPTION_LABEL + corrected_model_text
             conf = 0.90
             confidence_basis = "measured_pixel_analysis"
         elif corrected_model_text:
             # No pixel measurement available: attribute the model sentence honestly.
-            text = attribution + corrected_model_text
+            text = DESCRIPTION_LABEL + corrected_model_text
             conf = 0.90
             confidence_basis = "nominal_model_estimate"
         else:
