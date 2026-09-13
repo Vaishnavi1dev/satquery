@@ -402,7 +402,8 @@ REPORT_TEMPLATE = """
             <table>
                 <thead>
                     <tr>
-                        <th>Step</th>
+                        <th>Step / Operation</th>
+                        <th>Action & Subtask Description</th>
                         <th>Status</th>
                         <th>Component</th>
                         <th>Duration</th>
@@ -412,7 +413,18 @@ REPORT_TEMPLATE = """
                 <tbody>
                     {% for step in trace_view.steps %}
                     <tr>
-                        <td style="font-weight: 500; color: #f0f6fc;">{{ step.step_name }}</td>
+                        <td style="font-weight: 500; color: #f0f6fc;">
+                            {% if step.details.get('stage') %}
+                                {{ step.details.get('stage') }}
+                            {% elif step.details.get('subtask_title') %}
+                                {{ step.details.get('subtask_title') }}
+                            {% else %}
+                                {{ step.step_name }}
+                            {% endif %}
+                        </td>
+                        <td style="font-size: 13px; color: #c9d1d9;">
+                            {{ step.details.get('action') or step.details.get('subtask_title') or step.step_name }}
+                        </td>
                         <td><span class="status-pill status-{{ step.status }}">{{ step.status }}</span></td>
                         <td>{{ step.tool_name or step.model_name or 'Controller' }}</td>
                         <td>{% if step.duration_ms %}{{ step.duration_ms }} ms{% else %}-{% endif %}</td>

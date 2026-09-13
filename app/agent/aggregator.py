@@ -1,12 +1,18 @@
+import math
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
 from app.tools.base import ToolOutput
+
+
+CALIBRATION_TEMPERATURE = 1.15
 
 
 class AggregatedResponse(BaseModel):
     answer: str
     boxes: Optional[List[List[int]]] = None
     confidence: Optional[float] = None
+    raw_confidence: Optional[float] = None
+    calibration_temperature: float = CALIBRATION_TEMPERATURE
     uncertainty_flag: bool = False
     conflict_detected: bool = False
     uncertainty_explanation: Optional[str] = None
@@ -27,6 +33,15 @@ class OutputAggregator:
     """
 
     @staticmethod
+    def calibrate_probability(p: float, temperature: float = CALIBRATION_TEMPERATURE) -> float:
+        """Applies real temperature scaling to a raw probability via its logit."""
+        eps = 1e-6
+        p_clamped = min(max(p, eps), 1.0 - eps)
+        logit = math.log(p_clamped / (1.0 - p_clamped))
+        scaled = logit / temperature
+        return 1.0 / (1.0 + math.exp(-scaled))
+
+    @staticmethod
     def aggregate(outputs: List[ToolOutput]) -> AggregatedResponse:
         if not outputs:
             return AggregatedResponse(
@@ -43,12 +58,14 @@ class OutputAggregator:
 
         if len(outputs) == 1:
             out = outputs[0]
-            conf = out.confidence
+            raw = out.confidence
+            calibrated = OutputAggregator.calibrate_probability(raw) if raw is not None else None
+            conf = calibrated
             uncertainty_flag = False
             uncertainty_exp = None
             answer_text = out.text
 
-            # Single-model uncertainty check (< 0.65 or honesty fallback)
+            # Single-model uncertainty check on the CALIBRATED probability (< 0.65 or honesty fallback)
             if conf is not None and conf < 0.65:
                 uncertainty_flag = True
                 uncertainty_exp = f"Specialist confidence ({round(conf * 100)}%) is below certainty threshold (65%). Ambient noise or feature ambiguity present."
@@ -60,7 +77,9 @@ class OutputAggregator:
             return AggregatedResponse(
                 answer=answer_text,
                 boxes=out.boxes,
-                confidence=out.confidence,
+                confidence=calibrated,
+                raw_confidence=raw,
+                calibration_temperature=CALIBRATION_TEMPERATURE,
                 uncertainty_flag=uncertainty_flag,
                 conflict_detected=False,
                 uncertainty_explanation=uncertainty_exp,
@@ -107,14 +126,16 @@ class OutputAggregator:
                 "evidence_count": len(secondary.evidence)
             })
 
-            # Check for conflict: significant confidence variance (>0.30)
+            # Check for conflict on CALIBRATED confidences: significant variance (>0.30)
             step_conflict = False
-            if primary.confidence is not None and secondary.confidence is not None:
-                if abs(primary.confidence - secondary.confidence) > 0.30:
+            primary_cal = OutputAggregator.calibrate_probability(primary.confidence) if primary.confidence is not None else None
+            secondary_cal = OutputAggregator.calibrate_probability(secondary.confidence) if secondary.confidence is not None else None
+            if primary_cal is not None and secondary_cal is not None:
+                if abs(primary_cal - secondary_cal) > 0.30:
                     step_conflict = True
                     conflict_reasons.append(
-                        f"Confidence divergence between {primary.model_name} ({round(primary.confidence * 100)}%) "
-                        f"and {secondary.model_name} ({round(secondary.confidence * 100)}%)."
+                        f"Confidence divergence between {primary.model_name} ({round(primary_cal * 100)}%) "
+                        f"and {secondary.model_name} ({round(secondary_cal * 100)}%)."
                     )
 
             # Check honesty gate trigger
@@ -140,9 +161,11 @@ class OutputAggregator:
                 else:
                     supporting.append(ev_item)
 
-        # Average calibrated confidence across valid outputs
+        # Average raw and calibrated confidence across valid outputs
         valid_confs = [o.confidence for o in outputs if o.confidence is not None]
-        avg_conf = round(sum(valid_confs) / len(valid_confs), 3) if valid_confs else None
+        raw_confidence = round(sum(valid_confs) / len(valid_confs), 3) if valid_confs else None
+        calibrated_confs = [OutputAggregator.calibrate_probability(c) for c in valid_confs]
+        avg_conf = round(sum(calibrated_confs) / len(calibrated_confs), 3) if calibrated_confs else None
 
         uncertainty_flag = conflict_detected or (avg_conf is not None and avg_conf < 0.65)
         uncertainty_exp = "; ".join(conflict_reasons) if conflict_reasons else (
@@ -190,6 +213,8 @@ class OutputAggregator:
             answer=composed_text,
             boxes=all_boxes if all_boxes else None,
             confidence=avg_conf,
+            raw_confidence=raw_confidence,
+            calibration_temperature=CALIBRATION_TEMPERATURE,
             uncertainty_flag=uncertainty_flag,
             conflict_detected=conflict_detected,
             uncertainty_explanation=uncertainty_exp,

@@ -14,7 +14,7 @@
 - **IP-3 Contracts first:** API_Contracts.md frozen before producer/consumer implementation.
 - **IP-4 Training external, non-blocking:** Fine-tuning runs on Colab in parallel; serving stack built against base weights.
 - **IP-5 Windows dev, cloud deploy:** Local `.venv/Scripts/python.exe`; Docker optional for dev; cloud GPU for training/inference.
-- **IP-6 Three models, two LLMs:** EarthDial (Phi-3-mini) for S1/S2/S4; Qwen3.5-2B for S3. DOFA frozen encoder.
+- **IP-6 Three models, one shared LLM:** EarthDial-4B (Phi-3-mini) serves Model A (S1/S2) and Model C (S3 multi-modal change/sequence); DOFA ViT-B (frozen) + cross-attention head is the S4 encoder.
 
 ---
 
@@ -316,7 +316,7 @@ satquery/
 |------|--------|------------|
 | EarthDial weight license blocks Model A | S1/S2/S4 primary unusable | Fallback: InternVL3-1B + BEN.txt FT (Model_Selection.md primary) - ready as Plan B |
 | DOFA wavelength inputs for Cartosat-2S/RISAT unknown | S4 sensor gap | Sensor profiles (IMP-009, OTD-103) + ISRO doc request; proxy test on Sentinel |
-| 3 models × 2 LLMs exceed GPU budget | Deployment failure | Int8 co-residency (~8.5 GB) + lazy load/evict; validate on cloud GPU early (IMP-020 spike) |
+| 3 models × 1 shared LLM exceed GPU budget | Deployment failure | Int8 co-residency (~8.5 GB) + lazy load/evict; validate on cloud GPU early (IMP-020 spike) |
 | CDVQA test split ambiguity (test1 vs test2 vs both) | Evaluation mismatch | Pin from benchmark release (TBD-005); run both, report both |
 | VRSBench/RSVQA format mismatches zero scores | Score loss | Format adapters (IMP-067) pinned from benchmark specs early |
 

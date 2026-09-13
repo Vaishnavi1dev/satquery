@@ -147,8 +147,14 @@ class BiTemporalChangeVQATool(ToolBase):
         cycle_consistency = round(max(0.0, 1.0 - (change_ratio * 0.2)), 3)
 
         if real_result and real_result.get("text"):
-            text = real_result["text"]
-            conf = 0.90
+            model_text = real_result["text"].strip()
+            if model_text:
+                text = (
+                    text
+                    + "\n\n\U0001F9E0 Specialist VLM Observation (EarthDial-4B Multi-Modal, checkpoint):\n"
+                    + model_text
+                )
+                conf = max(conf, 0.90)
 
         # Compute real-world geographic coordinates
         geo_boxes = [pixel_box_to_geo(b, t2_env) for b in boxes]
@@ -194,7 +200,7 @@ class BiTemporalChangeVQATool(ToolBase):
                 "geo_boxes": geo_boxes,
                 "cycle_consistency": cycle_consistency,
                 "inference_backend": "checkpoint" if real_result else ("pixel_analysis" if measured_change else "simulation"),
-                "checkpoint_dir": real_result.get("checkpoint_dir") if real_result else str(self.runtime_mgr.get_checkpoint_dir("earthdial-4b")) if self.runtime_mgr.get_checkpoint_dir("earthdial-4b") else None,
+                "checkpoint_dir": real_result.get("checkpoint_dir") if real_result else str(self.runtime_mgr.get_checkpoint_dir(self.model_key)) if self.runtime_mgr.get_checkpoint_dir(self.model_key) else None,
             }
         )
 
@@ -224,10 +230,35 @@ class BiTemporalChangeVQATool(ToolBase):
             if not np.any(active):
                 return None
             ys, xs = np.where(active)
-            x1 = int(xs.min() / 256 * width)
-            y1 = int(ys.min() / 256 * height)
-            x2 = max(x1 + 1, int((xs.max() + 1) / 256 * width))
-            y2 = max(y1 + 1, int((ys.max() + 1) / 256 * height))
+            x_lo = int(np.percentile(xs, 5))
+            x_hi = int(np.percentile(xs, 95))
+            y_lo = int(np.percentile(ys, 5))
+            y_hi = int(np.percentile(ys, 95))
+            x1 = int(x_lo / 256 * width)
+            y1 = int(y_lo / 256 * height)
+            x2 = max(x1 + 1, int(x_hi / 256 * width))
+            y2 = max(y1 + 1, int(y_hi / 256 * height))
+
+            min_size = 8
+            if x2 - x1 < min_size:
+                cx = (x1 + x2) // 2
+                x1 = cx - min_size // 2
+                x2 = x1 + min_size
+            if y2 - y1 < min_size:
+                cy = (y1 + y2) // 2
+                y1 = cy - min_size // 2
+                y2 = y1 + min_size
+
+            x1 = max(0, min(x1, width))
+            x2 = max(0, min(x2, width))
+            y1 = max(0, min(y1, height))
+            y2 = max(0, min(y2, height))
+            if x2 - x1 < min_size:
+                x1 = max(0, x2 - min_size)
+                x2 = min(width, x1 + min_size)
+            if y2 - y1 < min_size:
+                y1 = max(0, y2 - min_size)
+                y2 = min(height, y1 + min_size)
             return {"changed_pct": float(np.mean(active) * 100), "box": [x1, y1, x2, y2]}
         except Exception:
             return None

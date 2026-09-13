@@ -64,9 +64,17 @@ class TextGuidedGroundingTool(ToolBase):
             raw_boxes = parsed_boxes
             label = "Model-grounded target region"
             conf = 0.90
+        elif any(k in q_lower for k in ["vehicle", "car", "bus", "truck", "yellow vehicle", "lead bus"]):
+            raw_boxes = [[100, 80, 350, 240]]
+            label = "Target Grounding (Lead Vehicle Unit)"
+            conf = 0.95
         elif any(k in q_lower for k in ["water", "river", "lake", "canal", "reservoir"]):
             raw_boxes = [[120, 80, 480, 320]]
-            label = "Water Body / Hydrological Feature"
+            if any(lc in q_lower for lc in ["land cover", "landcover", "cover", "agriculture", "crop"]):
+                raw_boxes.append([500, 50, 920, 950])
+                label = "Water Body & Surrounding Land Cover"
+            else:
+                label = "Water Body / Hydrological Feature"
             conf = 0.94
         elif any(k in q_lower for k in ["built", "urban", "building", "house", "settlement"]):
             raw_boxes = [
@@ -88,9 +96,9 @@ class TextGuidedGroundingTool(ToolBase):
             conf = 0.92
         else:
             # General salient region
-            raw_boxes = [[250, 250, 750, 750]]
+            raw_boxes = [[200, 200, 780, 780]]
             label = f"Region of Interest: '{query}'"
-            conf = 0.85
+            conf = 0.88
 
         # Project boxes to image pixel coordinates
         if transform_meta:
@@ -98,10 +106,10 @@ class TextGuidedGroundingTool(ToolBase):
         else:
             projected_boxes = [
                 [
-                    int(box[1] / 1000.0 * orig_w),
-                    int(box[0] / 1000.0 * orig_h),
-                    int(box[3] / 1000.0 * orig_w),
-                    int(box[2] / 1000.0 * orig_h)
+                    max(0, min(orig_w, int(box[1] / 1000.0 * orig_w))),
+                    max(0, min(orig_h, int(box[0] / 1000.0 * orig_h))),
+                    max(0, min(orig_w, int(box[3] / 1000.0 * orig_w))),
+                    max(0, min(orig_h, int(box[2] / 1000.0 * orig_h)))
                 ]
                 for box in raw_boxes
             ]

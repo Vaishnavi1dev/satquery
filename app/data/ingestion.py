@@ -260,8 +260,20 @@ def pixel_box_to_geo(box: List[int], envelope: ImageMetadataEnvelope) -> Dict[st
     }
 
 
-def boxes_to_geojson(boxes: List[List[int]], envelope: ImageMetadataEnvelope, label: str = "Grounding Target") -> Dict[str, Any]:
+def boxes_to_geojson(
+    boxes: List[List[int]], 
+    envelope: ImageMetadataEnvelope, 
+    label: str = "Grounding Target",
+    evidence_items: Optional[List[Dict[str, Any]]] = None
+) -> Dict[str, Any]:
     """Generates standard GeoJSON FeatureCollection for direct visualization in GIS tools (QGIS, ArcGIS)."""
+    CATEGORY_COLORS = {
+        "water_body": "#0284c7",          # Ocean/Lake Blue
+        "forest_canopy": "#15803d",        # Deep Forest Green
+        "vegetation_permeable": "#84cc16", # Agricultural / Crop Lime Green
+        "built_up": "#f59e0b",             # Urban Amber / Orange
+    }
+
     features = []
     for idx, box in enumerate(boxes):
         geo_info = pixel_box_to_geo(box, envelope)
@@ -273,11 +285,23 @@ def boxes_to_geojson(boxes: List[List[int]], envelope: ImageMetadataEnvelope, la
             [min_lon, max_lat],
             [min_lon, min_lat]
         ]]
+
+        ev_item = evidence_items[idx] if (evidence_items and idx < len(evidence_items)) else {}
+        item_cat = ev_item.get("type") or ev_item.get("category") or "general_target"
+        item_label = ev_item.get("label") or label
+        item_desc = ev_item.get("description") or ""
+        item_score = ev_item.get("score") or 0.90
+        item_color = CATEGORY_COLORS.get(item_cat) or CATEGORY_COLORS.get(item_cat.lower(), "#06b6d4")
+
         features.append({
             "type": "Feature",
             "properties": {
                 "id": f"zone_{idx + 1}",
-                "label": label,
+                "label": item_label,
+                "category": item_cat,
+                "color": item_color,
+                "description": item_desc,
+                "confidence": item_score,
                 "formatted_coords": geo_info["formatted_coords"],
                 "pixel_box": box,
                 "sensor": envelope.sensor,

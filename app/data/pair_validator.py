@@ -40,11 +40,13 @@ class PairValidator:
         w_diff = abs(img_t1.width - img_t2.width) / max(img_t1.width, img_t2.width) * 100.0
         h_diff = abs(img_t1.height - img_t2.height) / max(img_t1.height, img_t2.height) * 100.0
 
+        # Dimension/GSD mismatch is non-fatal: the rendering and preprocessing stages
+        # harmonize image sizes (resize/resample), so surface it as a warning instead of failing.
         if w_diff > tolerance_pct or h_diff > tolerance_pct:
-            raise ValidationError(
-                "VAL_PAIR_INCOMPATIBLE",
+            warnings.append(
                 f"Bi-temporal images have mismatched dimensions: T1 is {img_t1.width}x{img_t1.height}, "
-                f"T2 is {img_t2.width}x{img_t2.height} (difference exceeds {tolerance_pct}% tolerance)."
+                f"T2 is {img_t2.width}x{img_t2.height} (difference exceeds {tolerance_pct}% tolerance). "
+                "Rendering/preprocessing will harmonize image sizes."
             )
 
         # Check CRS compatibility if both have CRS
@@ -80,16 +82,9 @@ class PairValidator:
                 f"Received modalities: '{img1.modality}' and '{img2.modality}'."
             )
 
-        # Dimension tolerance
-        w_diff = abs(opt_img.width - sar_img.width) / max(opt_img.width, sar_img.width) * 100.0
-        h_diff = abs(opt_img.height - sar_img.height) / max(opt_img.height, sar_img.height) * 100.0
-
-        if w_diff > tolerance_pct or h_diff > tolerance_pct:
-            raise ValidationError(
-                "VAL_PAIR_INCOMPATIBLE",
-                f"Optical and SAR images are not spatially co-registered: "
-                f"Optical {opt_img.width}x{opt_img.height} vs SAR {sar_img.width}x{sar_img.height}."
-            )
+        # Dimension/GSD mismatch is non-fatal: rendering/preprocessing harmonizes sizes.
+        # This tuple-returning validator has no warnings channel; the modality (optical+SAR)
+        # pairing check above remains the hard requirement.
 
         return opt_img, sar_img
 
@@ -110,10 +105,12 @@ class PairValidator:
         for i, img in enumerate(images[1:], start=2):
             w_diff = abs(ref.width - img.width) / max(ref.width, img.width) * 100.0
             h_diff = abs(ref.height - img.height) / max(ref.height, img.height) * 100.0
+            # Mismatched dimensions/GSD are surfaced as warnings because downstream
+            # rendering and preprocessing harmonize sizes rather than resampling inputs here.
             if w_diff > tolerance_pct or h_diff > tolerance_pct:
-                raise ValidationError(
-                    "VAL_PAIR_INCOMPATIBLE",
-                    f"Observation T{i} ({img.width}x{img.height}) dimensions mismatch baseline T1 ({ref.width}x{ref.height}) by >{tolerance_pct}%."
+                warnings.append(
+                    f"Observation T{i} ({img.width}x{img.height}) dimensions mismatch baseline T1 "
+                    f"({ref.width}x{ref.height}) by >{tolerance_pct}%. Rendering/preprocessing will harmonize image sizes."
                 )
             if ref.crs and img.crs and ref.crs != img.crs:
                 warnings.append(f"CRS difference at epoch T{i}: {img.crs} vs baseline {ref.crs}.")

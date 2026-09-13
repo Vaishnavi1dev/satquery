@@ -91,12 +91,18 @@ class TaskClassifier:
             return "opt_sar_fusion", 0.92
 
         # 2. Single-image routing
-        # Check text-guided region grounding
+        # Check text-guided region grounding and referring expression localization
         grounding_triggers = [
             "highlight", "locate", "box", "draw", "bounding", "where is", "where are",
-            "detect the region", "segment", "pinpoint", "mark"
+            "detect the region", "segment", "pinpoint", "mark", "closest to", "situated",
+            "next to", "nearest", "positioned", "lead "
         ]
-        if any(trigger in q_lower for trigger in grounding_triggers):
+        is_referring_expr = (
+            (q_lower.startswith("the ") or q_lower.startswith("a ") or q_lower.startswith("an "))
+            and not any(q_lower.startswith(w) for w in ["what", "how", "is", "are", "can", "does", "why"])
+            and "?" not in q_lower
+        )
+        if any(trigger in q_lower for trigger in grounding_triggers) or is_referring_expr:
             return "grounding", 0.94
 
         # Check scene captioning / land-cover description

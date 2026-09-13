@@ -1,10 +1,11 @@
 import React, { useState, useRef } from 'react';
-import { UploadCloud, CheckCircle, Trash2, Layers, Plus, FileText } from 'lucide-react';
+import { UploadCloud, CheckCircle, Trash2, Layers, Plus, FileText, RotateCcw } from 'lucide-react';
 
 export default function UploadZone({
   uploadedImages,      // ImageMetadataEnvelope[]
   onUploadFiles,       // async (File[]) => void
   onRemoveImage,       // (imageId) => void
+  onStartFresh,        // () => void
   isUploading,         // boolean
 }) {
   const [isDragging, setIsDragging] = useState(false);
@@ -55,15 +56,38 @@ export default function UploadZone({
           </p>
         </div>
 
-        <button
-          className="btn btn-ghost btn-sm"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={isUploading}
-          style={{ color: 'var(--cyan-400)', borderColor: 'rgba(6, 182, 212, 0.3)' }}
-        >
-          <Plus size={14} />
-          <span>Upload Satellite Image(s)</span>
-        </button>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          {uploadedImages.length > 0 && onStartFresh && (
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={onStartFresh}
+              disabled={isUploading}
+              style={{
+                color: '#f87171',
+                borderColor: 'rgba(248, 113, 113, 0.35)',
+                background: 'rgba(248, 113, 113, 0.08)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                fontWeight: 600
+              }}
+              title="Clear all uploaded imagery and reset workspace"
+            >
+              <RotateCcw size={13} />
+              <span>Start Fresh</span>
+            </button>
+          )}
+
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isUploading}
+            style={{ color: 'var(--cyan-400)', borderColor: 'rgba(6, 182, 212, 0.3)' }}
+          >
+            <Plus size={14} />
+            <span>Upload Satellite Image(s)</span>
+          </button>
+        </div>
       </div>
 
       {/* Uploaded Imagery Grid */}

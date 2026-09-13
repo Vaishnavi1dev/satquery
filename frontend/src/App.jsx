@@ -11,7 +11,6 @@ import EvidenceViewer from './components/results/EvidenceViewer';
 import ProvenanceCard from './components/results/ProvenanceCard';
 import TraceTimeline from './components/results/TraceTimeline';
 import HomePage from './components/HomePage';
-import IntelligencePage from './components/IntelligencePage';
 import { api } from './api/client';
 import { AlertOctagon } from 'lucide-react';
 
@@ -33,9 +32,9 @@ const DEMO_CASES = {
   sequence: {
     query: 'Analyze the multi-temporal timeline progression and cumulative land transformation from T1 to T3.',
     files: [
-      ['/sample_imagery/pair_00001_optical.jpg', 'demo_epoch_t1.jpg'],
-      ['/sample_imagery/pair_00002_optical.jpg', 'demo_epoch_t2.jpg'],
-      ['/sample_imagery/pair_00003_optical.jpg', 'demo_epoch_t3.jpg'],
+      ['/sample_imagery/pair_00000_optical.jpg', 'demo_epoch_t1.jpg'],
+      ['/sample_imagery/pair_00001_optical.jpg', 'demo_epoch_t2.jpg'],
+      ['/sample_imagery/pair_00002_optical.jpg', 'demo_epoch_t3.jpg'],
     ],
   },
 };
@@ -50,7 +49,7 @@ async function loadSampleFile(url, filename) {
 export default function App() {
   const [activeTab, setActiveTab] = useState(() => {
     const hash = window.location.hash.replace('#', '').toLowerCase();
-    if (['home', 'ask', 'intelligence'].includes(hash)) return hash;
+    if (['home', 'ask'].includes(hash)) return hash;
     return 'home';
   });
   const [sessionId, setSessionId] = useState('');
@@ -176,19 +175,25 @@ export default function App() {
     }
   };
 
-  const handleNewSession = async () => {
+  const handleStartFresh = async () => {
     try {
-      const res = await api.createSession();
-      setSessionId(res.session_id);
+      setIsExecuting(false);
       setUploadedImages([]);
+      setQuery('');
       setExecutionResult(null);
       setValidationResult(null);
+      setErrorMessage(null);
+      const res = await api.createSession();
+      setSessionId(res.session_id);
       const listRes = await api.listSessions();
       if (listRes.sessions) setSessions(listRes.sessions);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err) {
-      setErrorMessage(`Failed to create session: ${err.message}`);
+      setErrorMessage(`Failed to reset workspace: ${err.message}`);
     }
   };
+
+  const handleNewSession = handleStartFresh;
 
   const handleSelectSession = (sid) => {
     setSessionId(sid);
@@ -201,7 +206,7 @@ export default function App() {
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash.replace('#', '').toLowerCase();
-      if (['home', 'ask', 'intelligence'].includes(hash)) {
+      if (['home', 'ask'].includes(hash)) {
         setActiveTab(hash);
       }
     };
@@ -270,15 +275,10 @@ export default function App() {
         {activeTab === 'home' && (
           <HomePage
             onNavigateToAsk={() => handleSelectTab('ask')}
-            onNavigateToIntelligence={() => handleSelectTab('intelligence')}
-          />
-        )}
-
-        {/* View 2: Intelligence Hub */}
-        {activeTab === 'intelligence' && (
-          <IntelligencePage
-            onLaunchDemo={() => handleSelectTab('ask')}
-            systemStatus={systemStatus}
+            onLaunchDemo={(presetId) => {
+              handleSelectTab('ask');
+              handleLoadDemo(presetId);
+            }}
           />
         )}
 
@@ -345,6 +345,7 @@ export default function App() {
               uploadedImages={uploadedImages}
               onUploadFiles={handleUploadFiles}
               onRemoveImage={handleRemoveImage}
+              onStartFresh={handleStartFresh}
               isUploading={isUploading}
             />
 
@@ -389,7 +390,8 @@ export default function App() {
                     uncertaintyFlag={executionResult.uncertainty_flag}
                     conflictDetected={executionResult.conflict_detected}
                     uncertaintyExplanation={executionResult.uncertainty_explanation}
-                    temperature={1.15}
+                    temperature={executionResult.calibration_temperature ?? 1.15}
+                    rawConfidence={executionResult.raw_confidence}
                   />
 
                   {/* Pillar 3: Visual Evidence Overlays */}

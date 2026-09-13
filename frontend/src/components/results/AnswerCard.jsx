@@ -142,10 +142,10 @@ export default function AnswerCard({ result }) {
                   if (win) win.focus();
                 }}
                 style={{ color: '#10b981', borderColor: 'rgba(16, 185, 129, 0.35)' }}
-                title="Print or export defense/disaster mission dossier as PDF"
+                title="Open the audit report and use your browser's Print → Save as PDF"
               >
                 <Printer size={14} />
-                <span>PDF Dossier</span>
+                <span>Print / Save as PDF</span>
               </button>
             </>
           )}

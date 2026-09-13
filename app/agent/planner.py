@@ -192,12 +192,20 @@ class ExecutionPlanner:
 
         # Default: Single atomic specialist task
         if not steps:
+            task_titles = {
+                "vqa": "Visual Question Answering & Semantic Feature Extraction",
+                "grounding": "Spatial Target Grounding & Bounding Localization",
+                "caption": "Comprehensive Land Use & Scene Description",
+                "change_vqa": "Bi-Temporal Change Detection & Quantification",
+                "opt_sar_fusion": "Cross-Modal Optical-SAR Backscatter Fusion",
+                "temporal_sequence": "Multi-Temporal Epoch Progression Analysis"
+            }
             steps.append(ExecutionStep(
                 step_id=f"step_{task}_01",
                 tool_name=primary_tool_name,
                 model_name=primary_desc["model_name"],
                 task=task,
-                subtask_title="Atomic Specialist Inference",
+                subtask_title=task_titles.get(task, "Atomic Specialist Inference"),
                 inputs=step_inputs,
                 parameters=clean_params
             ))

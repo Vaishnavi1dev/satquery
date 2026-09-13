@@ -11,7 +11,9 @@ export default function TraceTimeline({ result }) {
   const rawLogs = result.trace || [];
   const traceUrl = api.getTraceUrl(result.trace_id, result.session_id);
 
-  // Standardized 6-Phase Explainable Pipeline
+  // Canonical 6-phase pipeline (deduplicated, canonical order)
+  const phaseOrder = ['InputValidation', 'TaskIdentification', 'ModelSelection', 'Execution', 'EvidenceCollection', 'FinalResult'];
+
   const phaseLabels = {
     InputValidation: '1. Input Compatibility & Coordinate Validation',
     TaskIdentification: '2. Task Identification & Query Decomposition',
@@ -21,7 +23,7 @@ export default function TraceTimeline({ result }) {
     FinalResult: '6. Final Result Synthesis & Audit Reporting'
   };
 
-  const displaySteps = traceSteps.length > 0 ? traceSteps : [
+  const fallbackSteps = [
     {
       step_name: 'InputValidation',
       status: 'COMPLETED',
@@ -67,6 +69,46 @@ export default function TraceTimeline({ result }) {
     }
   ];
 
+  const groupedSteps = phaseOrder
+    .map((phase) => {
+      const events = traceSteps.filter((s) => s && (s.step_name === phase || (phase === 'Execution' && typeof s.step_name === 'string' && s.step_name.startsWith('step_'))));
+      if (events.length === 0) return null;
+
+      const succeeded = events.some((e) => e.status === 'SUCCESS' || e.status === 'COMPLETED');
+      const durations = events
+        .map((e) => (typeof e.duration_ms === 'number' ? e.duration_ms : 0))
+        .filter((d) => d > 0);
+      const durationMs = durations.length > 0 ? Math.max(...durations) : 0;
+
+      const toolName = (events.find((e) => e.tool_name) || {}).tool_name
+        || (events.find((e) => e.model_name) || {}).model_name
+        || 'Agent Controller';
+
+      const detailParts = [];
+      events.forEach((e) => {
+        const d = e.details !== undefined ? e.details : e.payload;
+        if (d && typeof d === 'object') {
+          Object.entries(d).forEach(([k, v]) => {
+            if (v === undefined || v === null || v === '') return;
+            detailParts.push(`${k}: ${typeof v === 'object' ? JSON.stringify(v) : String(v)}`);
+          });
+        } else if (d !== undefined && d !== null && d !== '') {
+          detailParts.push(String(d));
+        }
+      });
+      const detail = detailParts.join(' • ');
+
+      return {
+        step_name: phase,
+        status: succeeded ? 'SUCCESS' : (events[0].status || 'COMPLETED'),
+        tool_name: toolName,
+        duration_ms: durationMs,
+        detail,
+      };
+    })
+    .filter(Boolean);
+
+  const displaySteps = groupedSteps.length > 0 ? groupedSteps : fallbackSteps;
   return (
     <div className="pillar-trace-card glass-panel">
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
@@ -122,11 +164,15 @@ export default function TraceTimeline({ result }) {
 
                 <div className="trace-step-meta">
                   <span style={{ color: 'var(--cyan-400)' }}>{step.tool_name || step.model_name || 'Agent Controller'}</span>
-                  {step.details && (
+                  {step.detail ? (
+                    <span style={{ color: 'var(--text-muted)', marginLeft: '0.5rem' }}>
+                      • {step.detail}
+                    </span>
+                  ) : step.details ? (
                     <span style={{ color: 'var(--text-muted)', marginLeft: '0.5rem' }}>
                       • {typeof step.details === 'object' ? JSON.stringify(step.details) : String(step.details)}
                     </span>
-                  )}
+                  ) : null}
                 </div>
               </div>
             </div>

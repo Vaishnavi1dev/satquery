@@ -13,6 +13,10 @@ export default function InteractiveMapViewer({ result, slotImages, sessionId }) 
   const [coordinatesHud, setCoordinatesHud] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  // Available image slot candidate for telemetry and georeferencing
+  const availableSlotsList = Object.values(slotImages || {}).filter(Boolean);
+  const firstSlot = availableSlotsList.length > 0 ? availableSlotsList[0] : null;
+
   // Basemap Tile Providers
   const TILE_SERVERS = {
     satellite: {
@@ -29,10 +33,9 @@ export default function InteractiveMapViewer({ result, slotImages, sessionId }) 
 
   // Determine initial center coordinates
   const getFallbackCoordinates = () => {
-    // Check if slotImages has bounds or geo_bbox
-    if (slotImages) {
-      const firstSlot = Object.values(slotImages).find(env => !!env);
-      const b = firstSlot?.bounds || firstSlot?.geo_bbox;
+    // Check if firstSlot has bounds or geo_bbox
+    if (firstSlot) {
+      const b = firstSlot.bounds || firstSlot.geo_bbox;
       if (b && b.length === 4) {
         const [minLon, minLat, maxLon, maxLat] = b;
         return [(minLat + maxLat) / 2, (minLon + maxLon) / 2];
@@ -51,8 +54,8 @@ export default function InteractiveMapViewer({ result, slotImages, sessionId }) 
         }
       }
     }
-    // Default to New Delhi / ISRO HQ coordinate space
-    return [28.6139, 77.2090];
+    // Default to Hyderabad / ISRO NRSC coordinates
+    return [17.4000, 78.5000];
   };
 
   // Fetch GeoJSON data if available
@@ -129,6 +132,10 @@ export default function InteractiveMapViewer({ result, slotImages, sessionId }) 
     if (!mapContainerRef.current) return;
 
     if (!mapInstanceRef.current) {
+      if (mapContainerRef.current._leaflet_id) {
+        delete mapContainerRef.current._leaflet_id;
+      }
+
       const [initialLat, initialLon] = getFallbackCoordinates();
       const map = L.map(mapContainerRef.current, {
         center: [initialLat, initialLon],
@@ -158,14 +165,20 @@ export default function InteractiveMapViewer({ result, slotImages, sessionId }) 
 
       // Invalidate size to ensure clean tile rendering after animation/mount
       setTimeout(() => {
-        map.invalidateSize();
-      }, 200);
+        if (mapInstanceRef.current) mapInstanceRef.current.invalidateSize();
+      }, 100);
+      setTimeout(() => {
+        if (mapInstanceRef.current) mapInstanceRef.current.invalidateSize();
+      }, 350);
     }
 
     return () => {
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
+      }
+      if (mapContainerRef.current && mapContainerRef.current._leaflet_id) {
+        delete mapContainerRef.current._leaflet_id;
       }
     };
   }, []);
@@ -183,6 +196,18 @@ export default function InteractiveMapViewer({ result, slotImages, sessionId }) 
     }).addTo(mapInstanceRef.current);
   }, [basemap]);
 
+  // Helper function to color features by class (water, forest, vegetation, built-up)
+  const getFeatureColor = (feature) => {
+    const props = feature?.properties || {};
+    if (props.color) return props.color;
+    const cat = (props.category || props.type || props.label || '').toLowerCase();
+    if (cat.includes('water')) return '#0284c7';      // Deep Blue
+    if (cat.includes('forest')) return '#15803d';     // Forest Green
+    if (cat.includes('crop') || cat.includes('veg') || cat.includes('field')) return '#84cc16'; // Lime / Vegetative
+    if (cat.includes('built') || cat.includes('urban') || cat.includes('struct')) return '#f59e0b'; // Amber / Built-up
+    return '#06b6d4'; // Default Cyan
+  };
+
   // Render / Update GeoJSON Layer
   useEffect(() => {
     if (!mapInstanceRef.current || !geoData) return;
@@ -192,23 +217,31 @@ export default function InteractiveMapViewer({ result, slotImages, sessionId }) 
     }
 
     const layer = L.geoJSON(geoData, {
-      style: {
-        color: '#06b6d4',
-        weight: 2.5,
-        opacity: 0.9,
-        fillColor: '#06b6d4',
-        fillOpacity: 0.2,
-        dashArray: '5, 5',
+      style: (feature) => {
+        const featureColor = getFeatureColor(feature);
+        return {
+          color: featureColor,
+          weight: 3,
+          opacity: 0.95,
+          fillColor: featureColor,
+          fillOpacity: 0.28,
+          dashArray: '6, 3',
+        };
       },
       onEachFeature: (feature, featureLayer) => {
         const props = feature.properties || {};
         const title = props.name || props.label || props.category || 'Target Area';
+        const color = getFeatureColor(feature);
         featureLayer.bindPopup(`
-          <div style="font-family: var(--font-sans); color: #0f172a; padding: 4px;">
-            <div style="font-weight: 700; font-size: 13px; color: #0284c7;">🎯 ${title}</div>
-            <div style="font-size: 11px; margin-top: 4px; color: #475569;">
-              ${props.category ? `<div><strong>Class:</strong> ${props.category}</div>` : ''}
+          <div style="font-family: var(--font-sans); color: #0f172a; padding: 6px; min-width: 170px;">
+            <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
+              <span style="width: 10px; height: 10px; border-radius: 2px; background: ${color}; display: inline-block;"></span>
+              <div style="font-weight: 700; font-size: 13px; color: #0f172a;">${title}</div>
+            </div>
+            <div style="font-size: 11px; color: #475569; display: flex; flex-direction: column; gap: 3px;">
+              ${props.category ? `<div><strong>Classification:</strong> <span style="color: ${color}; font-weight: 600;">${props.category.toUpperCase()}</span></div>` : ''}
               ${props.confidence ? `<div><strong>Confidence:</strong> ${(props.confidence * 100).toFixed(1)}%</div>` : ''}
+              ${props.description ? `<div style="margin-top: 4px; font-size: 10px; color: #64748b; line-height: 1.3;">${props.description}</div>` : ''}
               ${props.area_km2 ? `<div><strong>Area:</strong> ${props.area_km2.toFixed(3)} km²</div>` : ''}
             </div>
           </div>
@@ -299,27 +332,50 @@ export default function InteractiveMapViewer({ result, slotImages, sessionId }) 
           bottom: 12,
           left: 12,
           zIndex: 1000,
-          background: 'rgba(7, 10, 18, 0.88)',
+          background: 'rgba(7, 10, 18, 0.90)',
           backdropFilter: 'blur(10px)',
-          padding: '4px 10px',
+          padding: '5px 12px',
           borderRadius: '6px',
           border: '1px solid rgba(6, 182, 212, 0.3)',
           display: 'flex',
           alignItems: 'center',
-          gap: '8px',
+          gap: '10px',
           fontSize: '0.72rem',
           color: 'var(--text-secondary)',
+          maxWidth: '85%',
         }}
       >
-        <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981' }} />
+        <div 
+          style={{ 
+            width: 7, 
+            height: 7, 
+            borderRadius: '50%', 
+            background: (firstSlot?.tags?.geotiff || firstSlot?.filename?.toLowerCase().endsWith('.tif')) ? '#10b981' : '#f59e0b', 
+            boxShadow: (firstSlot?.tags?.geotiff || firstSlot?.filename?.toLowerCase().endsWith('.tif')) ? '0 0 8px #10b981' : '0 0 8px #f59e0b',
+            flexShrink: 0
+          }} 
+        />
         <span style={{ fontWeight: 600, color: 'var(--cyan-400)' }}>WGS84 EPSG:4326</span>
         {coordinatesHud ? (
           <span className="mono" style={{ color: 'var(--text-primary)' }}>
             {coordinatesHud.lat}°N, {coordinatesHud.lng}°E
           </span>
         ) : (
-          <span style={{ color: 'var(--text-muted)' }}>Hover over map for telemetry</span>
+          <span style={{ color: 'var(--text-muted)' }}>Hover for cursor telemetry</span>
         )}
+        <span 
+          style={{ 
+            fontSize: '0.68rem', 
+            color: (firstSlot?.tags?.geotiff || firstSlot?.filename?.toLowerCase().endsWith('.tif')) ? '#10b981' : '#f59e0b',
+            borderLeft: '1px solid var(--border-subtle)',
+            paddingLeft: '8px',
+            whiteSpace: 'nowrap'
+          }}
+        >
+          {(firstSlot?.tags?.geotiff || firstSlot?.filename?.toLowerCase().endsWith('.tif')) 
+            ? '🛰️ Georeferenced (GeoTIFF)' 
+            : '📍 Default Reference Anchor: ISRO NRSC (Hyderabad) — Non-georeferenced image'}
+        </span>
       </div>
 
       {/* Feature Count Pill (Top Right) */}
@@ -329,20 +385,63 @@ export default function InteractiveMapViewer({ result, slotImages, sessionId }) 
           top: 12,
           right: 12,
           zIndex: 1000,
-          background: 'rgba(7, 10, 18, 0.85)',
+          background: 'rgba(7, 10, 18, 0.88)',
           backdropFilter: 'blur(10px)',
-          padding: '4px 8px',
+          padding: '4px 10px',
           borderRadius: '6px',
           border: '1px solid var(--border-subtle)',
           fontSize: '0.72rem',
           display: 'flex',
           alignItems: 'center',
-          gap: '5px',
-          color: 'var(--cyan-400)',
+          gap: '6px',
+          color: result?.geojson_url ? '#10b981' : 'var(--cyan-400)',
         }}
       >
         <Shield size={12} />
-        <span>Vector GeoJSON Synchronized</span>
+        <span>
+          {result?.geojson_url 
+            ? `Vector GeoJSON Synchronized (${geoData?.features?.length || 1} zones)` 
+            : 'Standard Observation AOI'}
+        </span>
+      </div>
+
+      {/* Classification Multi-Class Legend */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 48,
+          right: 12,
+          zIndex: 1000,
+          background: 'rgba(7, 10, 18, 0.90)',
+          backdropFilter: 'blur(10px)',
+          padding: '6px 10px',
+          borderRadius: '6px',
+          border: '1px solid var(--border-subtle)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '4px',
+          fontSize: '0.68rem',
+        }}
+      >
+        <div style={{ fontWeight: 700, color: 'var(--text-muted)', fontSize: '0.62rem', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 2 }}>
+          Class Legend
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ width: 9, height: 9, borderRadius: 2, background: '#0284c7', border: '1px solid #38bdf8', display: 'inline-block' }} />
+          <span style={{ color: '#bae6fd' }}>Water Body</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ width: 9, height: 9, borderRadius: 2, background: '#15803d', border: '1px solid #22c55e', display: 'inline-block' }} />
+          <span style={{ color: '#bbf7d0' }}>Forest Canopy</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ width: 9, height: 9, borderRadius: 2, background: '#84cc16', border: '1px solid #a3e635', display: 'inline-block' }} />
+          <span style={{ color: '#d9f99d' }}>Vegetation / Crops</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ width: 9, height: 9, borderRadius: 2, background: '#f59e0b', border: '1px solid #fbbf24', display: 'inline-block' }} />
+          <span style={{ color: '#fde68a' }}>Built-Up / Urban</span>
+        </div>
       </div>
     </div>
   );

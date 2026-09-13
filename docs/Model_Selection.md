@@ -107,7 +107,7 @@
 | S3 Change-VQA | Model C (EarthDial-4B Multi-Modal) | `change-vqa` |
 | S4 Optical–SAR Fusion | Model B (DOFA encoder) + Model A LLM head | `opt-sar-fusion` |
 
-- **Two LLM backbones**: EarthDial's Phi-3-mini (for S1/S2/S4 text generation) + Qwen3.5-2B (for S3 change-VQA).
+- **Shared LLM backbone**: EarthDial's Phi-3-mini serves Model A (S1/S2/S4 text generation) and Model C (S3 change-VQA); DOFA remains the frozen S4 encoder.
 - **One shared vision encoder for S4**: DOFA (frozen) extracts features; EarthDial's LLM decodes.
 - **No single generic VLM** - satisfies PRD-CON-008 / AML-002.
 

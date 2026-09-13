@@ -1,5 +1,5 @@
 import React from 'react';
-import { Satellite, History, PlusCircle, ExternalLink } from 'lucide-react';
+import { Satellite, History, RotateCcw, ExternalLink } from 'lucide-react';
 
 export default function Header({ 
   sessionId, 
@@ -41,13 +41,6 @@ export default function Header({
         >
           Ask SatQuery
         </button>
-        <button 
-          className={`nav-link ${activeTab === 'intelligence' ? 'active' : ''}`}
-          onClick={() => onSelectTab && onSelectTab('intelligence')}
-          style={{ background: 'none', border: 'none', cursor: 'pointer', font: 'inherit' }}
-        >
-          Intelligence
-        </button>
       </nav>
 
       <div className="header-actions">
@@ -67,10 +60,19 @@ export default function Header({
         <button 
           className="btn btn-ghost btn-sm" 
           onClick={onNewSession}
-          title="Start fresh session sandbox"
+          title="Reset workspace, clear loaded imagery and start fresh"
+          style={{
+            color: '#38bdf8',
+            border: '1px solid rgba(56, 189, 248, 0.35)',
+            background: 'rgba(56, 189, 248, 0.08)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.4rem',
+            fontWeight: 600
+          }}
         >
-          <PlusCircle size={14} />
-          <span>New Session</span>
+          <RotateCcw size={14} />
+          <span>Start Fresh</span>
         </button>
 
         <button 

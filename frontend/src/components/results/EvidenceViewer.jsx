@@ -6,7 +6,7 @@ import InteractiveMapViewer from './InteractiveMapViewer.jsx';
 
 export default function EvidenceViewer({ result, slotImages, sessionId }) {
   const [activeTab, setActiveTab] = useState('evidence'); // 'evidence', 'slider', 'spectral', 'map', or slotId
-  const [selectedEvidenceIndex, setSelectedEvidenceIndex] = useState(null);
+  const [selectedEvidenceIndex, setSelectedEvidenceIndex] = useState(0);
   const [activeTransitionIndex, setActiveTransitionIndex] = useState(0);
 
   if (!result) return null;
@@ -17,6 +17,7 @@ export default function EvidenceViewer({ result, slotImages, sessionId }) {
   const temporalEvents = result.temporal_events || [];
 
   const availableSlots = Object.entries(slotImages || {}).filter(([_, env]) => !!env);
+  const primaryEnv = availableSlots.length > 0 ? availableSlots[0][1] : null;
 
   // Find candidate image for spectral index calculation (prefer multispectral, then optical)
   const spectralSlot = availableSlots.find(([_, env]) => env.modality === 'multispectral')
@@ -24,6 +25,10 @@ export default function EvidenceViewer({ result, slotImages, sessionId }) {
     || availableSlots[0];
   const spectralCandidateImageId = spectralSlot ? (spectralSlot[1].image_id || spectralSlot[0]) : null;
   const spectralCandidateThumb = spectralSlot ? spectralSlot[1].thumbnail_base64 : null;
+
+  // Dynamic image dimensions for SVG viewport alignment
+  const refWidth = primaryEnv?.width || 512;
+  const refHeight = primaryEnv?.height || 512;
 
   // Active highlighted box calculation
   let activeHighlightBox = null;
@@ -34,7 +39,7 @@ export default function EvidenceViewer({ result, slotImages, sessionId }) {
     const item = evidenceList[selectedEvidenceIndex];
     if (item.region && item.region.length === 4) {
       activeHighlightBox = item.region;
-      activeHighlightLabel = item.category || item.type || 'Focused Region';
+      activeHighlightLabel = item.description || item.category || item.type || 'Focused Region';
       activeHighlightGeo = item.geo_coordinates;
     }
   } else if (temporalEvents.length > 0 && temporalEvents[activeTransitionIndex]) {
@@ -44,11 +49,10 @@ export default function EvidenceViewer({ result, slotImages, sessionId }) {
       activeHighlightLabel = `${ev.transition}: ${ev.category}`;
       activeHighlightGeo = ev.geo_coordinates;
     }
+  } else if (boxes.length > 0 && boxes[0].length === 4) {
+    activeHighlightBox = boxes[0];
+    activeHighlightLabel = 'Primary Target Feature';
   }
-
-  // Dimension reference (defaulting to 512 if not in env)
-  const refWidth = 512;
-  const refHeight = 512;
 
   const handleEvidenceClick = (index) => {
     if (selectedEvidenceIndex === index) {
@@ -134,7 +138,7 @@ export default function EvidenceViewer({ result, slotImages, sessionId }) {
               }}
             >
               <ImageIcon size={13} />
-              <span>Observation {i + 1} ({env.modality})</span>
+              <span>Observation {i + 1} ({env.modality === 'multispectral' ? 'Multispectral MSI' : env.modality === 'sar' ? 'SAR Radar' : 'Optical RGB'})</span>
             </button>
           ))}
 
@@ -193,18 +197,22 @@ export default function EvidenceViewer({ result, slotImages, sessionId }) {
             />
           </div>
         ) : activeTab === 'evidence' && evidenceUrl ? (
-          <img src={evidenceUrl} alt="Visual Evidence Overlay" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+          <img
+            src={evidenceUrl}
+            alt="Visual Evidence Overlay"
+            style={{ maxWidth: '100%', maxHeight: '420px', width: 'auto', height: '100%', objectFit: 'contain' }}
+          />
         ) : activeTab !== 'evidence' && slotImages?.[activeTab]?.thumbnail_base64 ? (
           <img
             src={slotImages[activeTab].thumbnail_base64}
             alt={slotImages[activeTab].filename}
-            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+            style={{ maxWidth: '100%', maxHeight: '420px', width: 'auto', height: '100%', objectFit: 'contain' }}
           />
         ) : availableSlots.length > 0 && availableSlots[0][1]?.thumbnail_base64 ? (
           <img
             src={availableSlots[0][1].thumbnail_base64}
             alt={availableSlots[0][1].filename}
-            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+            style={{ maxWidth: '100%', maxHeight: '420px', width: 'auto', height: '100%', objectFit: 'contain' }}
           />
         ) : (
           <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
@@ -214,42 +222,144 @@ export default function EvidenceViewer({ result, slotImages, sessionId }) {
         )}
 
         {/* Interactive SVG Focus Highlight Overlay */}
-        {activeHighlightBox && (
-          <svg
-            style={{
-              position: 'absolute',
-              inset: 0,
-              width: '100%',
-              height: '100%',
-              pointerEvents: 'none',
-              zIndex: 10,
-            }}
-            viewBox={`0 0 ${refWidth} ${refHeight}`}
-          >
-            {/* Pulsing Highlight Box */}
-            <rect
-              x={activeHighlightBox[0]}
-              y={activeHighlightBox[1]}
-              width={activeHighlightBox[2] - activeHighlightBox[0]}
-              height={activeHighlightBox[3] - activeHighlightBox[1]}
-              fill="rgba(6, 182, 212, 0.2)"
-              stroke="var(--cyan-400)"
-              strokeWidth="3"
-              strokeDasharray="6 3"
-            >
-              <animate attributeName="stroke-opacity" values="1;0.4;1" dur="1.5s" repeatCount="indefinite" />
-            </rect>
+        {!['spectral', 'map', 'slider'].includes(activeTab) && activeHighlightBox && (() => {
+          const isFusionSplit = activeTab === 'evidence' && (
+            result?.evidence_type === 'opt_sar_pair' ||
+            result?.evidence_type === 'bi_temporal_pair' ||
+            (evidenceUrl && (evidenceUrl.includes('fusion') || evidenceUrl.includes('pair')))
+          );
+          const vbWidth = isFusionSplit ? 1040 : refWidth;
+          const vbHeight = isFusionSplit ? 552 : refHeight;
+          const bw = Math.abs(activeHighlightBox[2] - activeHighlightBox[0]);
+          const bh = Math.abs(activeHighlightBox[3] - activeHighlightBox[1]);
+          const minX = Math.min(activeHighlightBox[0], activeHighlightBox[2]);
+          const minY = Math.min(activeHighlightBox[1], activeHighlightBox[3]);
 
-            {/* Corner Markers */}
-            <circle cx={activeHighlightBox[0]} cy={activeHighlightBox[1]} r="4" fill="#fff" />
-            <circle cx={activeHighlightBox[2]} cy={activeHighlightBox[1]} r="4" fill="#fff" />
-            <circle cx={activeHighlightBox[0]} cy={activeHighlightBox[3]} r="4" fill="#fff" />
-            <circle cx={activeHighlightBox[2]} cy={activeHighlightBox[3]} r="4" fill="#fff" />
-          </svg>
-        )}
+          if (isFusionSplit) {
+            // Optical side (left: 0..512) and SAR side (right: 528..1040)
+            const ox = minX;
+            const oy = minY + 40;
+            const sx = minX + 528;
+            const sy = minY + 40;
+
+            return (
+              <svg
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  width: '100%',
+                  height: '100%',
+                  pointerEvents: 'none',
+                  zIndex: 10,
+                }}
+                viewBox={`0 0 ${vbWidth} ${vbHeight}`}
+                preserveAspectRatio="xMidYMid meet"
+              >
+                {/* Optical Focus Rectangle */}
+                <rect
+                  x={ox}
+                  y={oy}
+                  width={bw}
+                  height={bh}
+                  fill="rgba(6, 182, 212, 0.22)"
+                  stroke="var(--cyan-400)"
+                  strokeWidth="3"
+                  strokeDasharray="6 3"
+                >
+                  <animate attributeName="stroke-opacity" values="1;0.4;1" dur="1.5s" repeatCount="indefinite" />
+                </rect>
+
+                {/* SAR Focus Rectangle */}
+                <rect
+                  x={sx}
+                  y={sy}
+                  width={bw}
+                  height={bh}
+                  fill="rgba(168, 85, 247, 0.22)"
+                  stroke="#c084fc"
+                  strokeWidth="3"
+                  strokeDasharray="6 3"
+                >
+                  <animate attributeName="stroke-opacity" values="1;0.4;1" dur="1.5s" repeatCount="indefinite" />
+                </rect>
+
+                {/* Optical Corner Markers */}
+                <circle cx={ox} cy={oy} r="4" fill="#fff" />
+                <circle cx={ox + bw} cy={oy} r="4" fill="#fff" />
+                <circle cx={ox} cy={oy + bh} r="4" fill="#fff" />
+                <circle cx={ox + bw} cy={oy + bh} r="4" fill="#fff" />
+
+                {/* SAR Corner Markers */}
+                <circle cx={sx} cy={sy} r="4" fill="#fff" />
+                <circle cx={sx + bw} cy={sy} r="4" fill="#fff" />
+                <circle cx={sx} cy={sy + bh} r="4" fill="#fff" />
+                <circle cx={sx + bw} cy={sy + bh} r="4" fill="#fff" />
+              </svg>
+            );
+          }
+
+          // Standard Single-Image Overlay
+          return (
+            <svg
+              style={{
+                position: 'absolute',
+                inset: 0,
+                width: '100%',
+                height: '100%',
+                pointerEvents: 'none',
+                zIndex: 10,
+              }}
+              viewBox={`0 0 ${vbWidth} ${vbHeight}`}
+              preserveAspectRatio="xMidYMid meet"
+            >
+              {/* Secondary detected boxes in scene */}
+              {boxes.map((box, bi) => {
+                if (!box || box.length !== 4) return null;
+                const bx = Math.min(box[0], box[2]);
+                const by = Math.min(box[1], box[3]);
+                const bbw = Math.abs(box[2] - box[0]);
+                const bbh = Math.abs(box[3] - box[1]);
+                if (bx === minX && by === minY && bbw === bw && bbh === bh) return null;
+                const colors = ['#10b981', '#f59e0b', '#c084fc', '#38bdf8'];
+                const c = colors[bi % colors.length];
+                return (
+                  <rect
+                    key={bi}
+                    x={bx}
+                    y={by}
+                    width={bbw}
+                    height={bbh}
+                    fill="rgba(16, 185, 129, 0.1)"
+                    stroke={c}
+                    strokeWidth="2"
+                    strokeDasharray="4 2"
+                  />
+                );
+              })}
+
+              {/* Active Focused Target Box */}
+              <rect
+                x={minX}
+                y={minY}
+                width={bw}
+                height={bh}
+                fill="rgba(6, 182, 212, 0.22)"
+                stroke="var(--cyan-400)"
+                strokeWidth="3"
+                strokeDasharray="6 3"
+              >
+                <animate attributeName="stroke-opacity" values="1;0.4;1" dur="1.5s" repeatCount="indefinite" />
+              </rect>
+              <circle cx={minX} cy={minY} r="4" fill="#fff" />
+              <circle cx={minX + bw} cy={minY} r="4" fill="#fff" />
+              <circle cx={minX + bw} cy={minY + bh} r="4" fill="#fff" />
+              <circle cx={minX} cy={minY + bh} r="4" fill="#fff" />
+            </svg>
+          );
+        })()}
 
         {/* Highlighted Region Coordinates Banner */}
-        {activeHighlightBox && (
+        {!['spectral', 'map', 'slider'].includes(activeTab) && activeHighlightBox && (
           <div
             style={{
               position: 'absolute',
@@ -276,7 +386,7 @@ export default function EvidenceViewer({ result, slotImages, sessionId }) {
           </div>
         )}
 
-        {boxes.length > 0 && (
+        {boxes.length > 0 && activeTab === 'evidence' && (
           <div className="evidence-controls-overlay">
             <span className="tag-pill mono" style={{ color: 'var(--cyan-400)' }}>
               <Box size={12} style={{ display: 'inline', marginRight: 3, verticalAlign: -1 }} />

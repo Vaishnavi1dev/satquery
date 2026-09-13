@@ -30,6 +30,9 @@ class PlanExecutor:
                 {
                     "tool_name": step.tool_name,
                     "model_name": step.model_name,
+                    "subtask_title": step.subtask_title,
+                    "stage": "Model Ingestion & Pre-flight",
+                    "action": f"Ingesting imagery & initializing {step.model_name} tensor pipeline",
                     "parameters": step.parameters
                 },
                 status="INFO"
@@ -45,6 +48,9 @@ class PlanExecutor:
                     {
                         "tool_name": step.tool_name,
                         "model_name": step.model_name,
+                        "subtask_title": step.subtask_title,
+                        "stage": "Model Inference Execution",
+                        "action": f"{step.subtask_title or 'Specialist Inference'}: Neural reasoning & spatial feature extraction",
                         "confidence": out.confidence,
                         "boxes_count": len(out.boxes) if out.boxes else 0,
                         "evidence_type": out.evidence_type

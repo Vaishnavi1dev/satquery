@@ -1,0 +1,39 @@
+# Runtime dependencies for satquery (direct imports only).
+#
+# NOTE: PyTorch/torchvision are CUDA-enabled builds. On this machine they are
+# installed as 2.11.0+cu128 / 0.26.0+cu128. On other machines, install them
+# from the matching PyTorch wheel index, e.g.:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+
+# Web/API
+fastapi==0.141.1
+uvicorn==0.52.4
+pydantic==2.13.5
+python-multipart==0.0.32
+
+# Config / templating
+PyYAML==6.0.3
+Jinja2==3.1.6
+
+# Data / imaging
+numpy==2.5.1
+pillow==12.3.0
+tifffile==2026.8.23
+
+# Model runtime
+torch==2.11.0
+torchvision==0.26.0
+transformers==4.57.6
+peft==0.20.0
+bitsandbytes==0.50.2
+accelerate==1.12.0
+sentencepiece==0.2.1
+timm==1.0.29
+safetensors==0.7.0
+huggingface-hub==0.36.2
+
+# Training data (lazily imported by training/*; not installed in the current env)
+datasets>=2.20.0
+
+# Testing
+pytest==9.1.1

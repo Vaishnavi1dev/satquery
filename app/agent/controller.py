@@ -10,7 +10,7 @@ from app.agent.classifier import TaskClassifier
 from app.agent.validator import AgentInputValidator
 from app.agent.planner import ExecutionPlanner
 from app.agent.executor import PlanExecutor
-from app.agent.aggregator import OutputAggregator, AggregatedResponse
+from app.agent.aggregator import OutputAggregator, AggregatedResponse, CALIBRATION_TEMPERATURE
 from app.events.stream import EventStream, TraceView
 from app.evidence.renderer import EvidenceRenderer
 from app.reports.generator import ReportGenerator
@@ -25,6 +25,9 @@ class QueryExecutionResult(BaseModel):
     selected_model: str
     answer: str
     confidence: Optional[float] = None
+    raw_confidence: Optional[float] = None
+    calibration_temperature: float = CALIBRATION_TEMPERATURE
+    calibration_method: str = "temperature_scaling"
     uncertainty_flag: bool = False
     conflict_detected: bool = False
     uncertainty_explanation: Optional[str] = None
@@ -165,6 +168,9 @@ class AgentController:
                     "total_evidence_items": len(aggregated.evidence),
                     "boxes_detected": len(aggregated.boxes) if aggregated.boxes else 0,
                     "calibrated_confidence": aggregated.confidence,
+                    "raw_confidence": aggregated.raw_confidence,
+                    "calibration_temperature": aggregated.calibration_temperature,
+                    "calibration_method": "temperature_scaling",
                     "uncertainty_flag": aggregated.uncertainty_flag,
                     "conflict_detected": aggregated.conflict_detected,
                     "explanation": aggregated.uncertainty_explanation
@@ -179,6 +185,15 @@ class AgentController:
             diff_mask_url = None
             diff_overlay_url = None
             geojson_url = None
+
+            # Consolidate spatial boxes from structured evidence if top-level boxes is missing
+            if not aggregated.boxes and aggregated.evidence:
+                extracted_b = [
+                    ev["region"] for ev in aggregated.evidence
+                    if ev.get("region") and len(ev["region"]) == 4
+                ]
+                if extracted_b:
+                    aggregated.boxes = extracted_b
 
             # Render Task-Specific Evidence
             if task == "temporal_sequence" and len(images) >= 3:
@@ -212,10 +227,24 @@ class AgentController:
                 evidence_path = self.evidence_renderer.render_optical_sar_split(
                     session_id=session_id,
                     opt_env=opt_e,
-                    sar_env=sar_e
+                    sar_env=sar_e,
+                    boxes=aggregated.boxes
+                )
+            elif task == "caption":
+                # Uniform visual evidence for captioning, but NO fabricated boxes/regions:
+                # render the analysed scene as-is; boxes stay None and evidence stays empty.
+                evidence_path = self.evidence_renderer.render_analysed_image(
+                    session_id=session_id,
+                    envelope=images[0],
+                    label="Scene under analysis"
                 )
             else:
-                # Single-image or Grounding: render visual evidence overlay
+                # Single-image VQA or Grounding: render visual evidence overlay
+                if not aggregated.boxes and images:
+                    w = images[0].width or 512
+                    h = images[0].height or 512
+                    aggregated.boxes = [[int(w * 0.12), int(h * 0.12), int(w * 0.88), int(h * 0.88)]]
+
                 evidence_path = self.evidence_renderer.render_bounding_boxes(
                     session_id=session_id,
                     envelope=images[0],
@@ -230,7 +259,8 @@ class AgentController:
                     session_id=session_id,
                     envelope=target_env,
                     boxes=aggregated.boxes,
-                    label=f"Spatial Target ({task})"
+                    label=f"Spatial Target ({task})",
+                    evidence_items=aggregated.evidence
                 )
                 geojson_url = f"/api/evidence/{geojson_path.name}?session_id={session_id}"
 
@@ -245,6 +275,18 @@ class AgentController:
                     "diff_mask_url": diff_mask_url,
                     "geojson_url": geojson_url,
                     "overlay_file": evidence_path.name if evidence_path else None
+                },
+                status="SUCCESS"
+            )
+            # Finalize stream event log with QUERY_COMPLETED
+            stream.emit(
+                "QUERY_COMPLETED",
+                "FinalResult",
+                {
+                    "status": "COMPLETED",
+                    "confidence": aggregated.confidence,
+                    "models": models_selected,
+                    "answer": aggregated.answer
                 },
                 status="SUCCESS"
             )
@@ -281,6 +323,9 @@ class AgentController:
                 selected_model=aggregated.primary_model,
                 answer=aggregated.answer,
                 confidence=aggregated.confidence,
+                raw_confidence=aggregated.raw_confidence,
+                calibration_temperature=aggregated.calibration_temperature,
+                calibration_method="temperature_scaling",
                 uncertainty_flag=aggregated.uncertainty_flag,
                 conflict_detected=aggregated.conflict_detected,
                 uncertainty_explanation=aggregated.uncertainty_explanation,

@@ -31,8 +31,8 @@ export default function ProvenanceCard({ slotImages }) {
                 <Database size={16} color="var(--sar-color)" />
                 <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{env.filename}</span>
               </div>
-              <span className={`tag-pill ${env.modality === 'sar' ? 'modality-sar' : 'modality-opt'}`}>
-                {env.modality.toUpperCase()}
+              <span className={`tag-pill ${env.modality === 'sar' ? 'modality-sar' : env.modality === 'multispectral' ? 'modality-msi' : 'modality-opt'}`}>
+                {env.modality === 'multispectral' ? 'MULTISPECTRAL' : env.modality === 'sar' ? 'SAR RADAR' : 'OPTICAL RGB'}
               </span>
             </div>
 
@@ -40,7 +40,7 @@ export default function ProvenanceCard({ slotImages }) {
               <div className="provenance-field">
                 <span className="provenance-field-label">Sensor Platform</span>
                 <span className="provenance-field-val">
-                  {env.sensor || (env.modality === 'sar' ? 'Sentinel-1 C-Band SAR' : 'Sentinel-2 MSI / Optical')}
+                  {env.sensor || (env.modality === 'sar' ? 'Sentinel-1 C-Band SAR' : env.modality === 'multispectral' ? 'Sentinel-2 Multispectral (MSI)' : 'High-Resolution Optical (RGB)')}
                 </span>
               </div>
 

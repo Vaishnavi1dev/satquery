@@ -1,7 +1,7 @@
 import React from 'react';
 import { ShieldCheck, AlertTriangle, Award, ShieldAlert } from 'lucide-react';
 
-export default function ConfidenceGauge({ confidence, uncertaintyFlag, conflictDetected, uncertaintyExplanation, temperature = 1.15 }) {
+export default function ConfidenceGauge({ confidence, rawConfidence, uncertaintyFlag, conflictDetected, uncertaintyExplanation, temperature = 1.15 }) {
   const confValue = typeof confidence === 'number' ? confidence : 0.85;
   const pct = Math.min(100, Math.max(0, Math.round(confValue <= 1 ? confValue * 100 : confValue)));
 
@@ -76,11 +76,19 @@ export default function ConfidenceGauge({ confidence, uncertaintyFlag, conflictD
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', marginTop: '0.5rem' }}>
         <div className="confidence-metric-row">
           <span>Calibration Mode</span>
-          <span style={{ color: 'var(--cyan-400)' }}>Platt / Temperature</span>
+          <span style={{ color: 'var(--cyan-400)' }}>Platt / Temperature Scaling</span>
         </div>
         <div className="confidence-metric-row">
           <span>Temperature (T)</span>
           <span>{temperature.toFixed(2)}</span>
+        </div>
+        <div className="confidence-metric-row">
+          <span>Raw → Calibrated</span>
+          <span>
+            {typeof rawConfidence === 'number'
+              ? `${Math.round(rawConfidence * 100)}% → ${pct}%`
+              : `${pct}%`}
+          </span>
         </div>
         <div className="confidence-metric-row">
           <span>Honesty Discrepancy Gate</span>

@@ -4,14 +4,12 @@ import DisasterPresets from './DisasterPresets.jsx';
 
 
 const PROMPT_SUGGESTIONS = [
-  "Identify and count cargo vessels docked in the port.",
-  "Are there any aircraft or runways visible on the tarmac?",
-  "Classify primary land cover types (vegetation, urban, water) across the scene.",
-  "Assess the vegetation canopy health and agricultural moisture levels.",
-  "Detect metallic structures and high-intensity backscatter regions.",
-  "Quantify structural damage and changes between observation scenes.",
-  "Detect new building construction and road infrastructure expansion.",
-  "Synthesize chronological timeline of detected environmental variance across epochs."
+  "Describe the land-cover and major objects visible in this image.",
+  "Identify and count the cargo vessels in this image.",
+  "Highlight the water body referred to in the query.",
+  "Use the optical and SAR images together to identify built-up and water-covered regions.",
+  "What changed between these two dates, and where did the change occur?",
+  "Analyze the multi-temporal timeline progression and cumulative land transformation from T1 to T3."
 ];
 
 export default function QueryPanel({

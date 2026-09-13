@@ -29,13 +29,24 @@ export default function AgentRoutingBadge({ imagesCount, imagesList, query }) {
     Icon = Clock;
     rationale = `Agent identified a multi-epoch sequence of ${imagesCount} satellite scenes. Automatically orchestrating cumulative trend extraction and chronological timeline synthesis.`;
   } else if (imagesCount === 2) {
-    if ((hasOpt && hasSar) || q_lower.includes('sar') || q_lower.includes('radar')) {
+    const changeIntent = ['what changed', 'change between', 'between these two', 't1', 't2', 'increased', 'decreased', 'over time', 'difference between'].some((k) => q_lower.includes(k));
+    const sarIntent = q_lower.includes('sar') || q_lower.includes('radar');
+
+    if ((hasOpt && hasSar) || sarIntent) {
       modeCode = 'MODE B';
-      architectureName = 'Optical + SAR + Multi-Spectral Cross-Modal Fusion';
-      specialistModel = 'DOFA-Large ViT-B (Wavelength Conditioned)';
-      badgeColor = 'var(--sar-color)';
-      Icon = Radio;
-      rationale = 'Agent verified complementary Optical reflectance and SAR radar backscatter. Automatically fusing both sensors to penetrate cloud cover and extract structural dielectric returns.';
+      if (hasOpt && hasSar && changeIntent && sarIntent) {
+        architectureName = 'Bi-Temporal Change + Cross-Modal SAR Verification';
+        specialistModel = 'EarthDial-4B Multi-Image + DOFA ViT-B';
+        badgeColor = 'var(--sar-color)';
+        Icon = Radio;
+        rationale = 'Agent detected a bi-temporal change request across a complementary Optical/MSI and SAR pair. Automatically routing to the EarthDial-4B multi-image change engine with DOFA cross-modal SAR verification to confirm structural deltas through cloud cover.';
+      } else {
+        architectureName = 'Optical + SAR + Multi-Spectral Cross-Modal Fusion';
+        specialistModel = 'DOFA ViT-B (Wavelength Conditioned)';
+        badgeColor = 'var(--sar-color)';
+        Icon = Radio;
+        rationale = 'Agent verified complementary Optical reflectance and SAR radar backscatter. Automatically fusing both sensors to penetrate cloud cover and extract structural dielectric returns.';
+      }
     } else {
       modeCode = 'MODE C';
       architectureName = 'Bi-Temporal Change Detection & Change-VQA';

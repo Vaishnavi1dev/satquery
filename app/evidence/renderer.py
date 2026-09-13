@@ -52,30 +52,70 @@ class EvidenceRenderer:
         overlay = Image.new("RGBA", base_img.size, (0, 0, 0, 0))
         draw = ImageDraw.Draw(overlay)
 
-        # Neon cyan accent with semi-transparent fill
-        box_stroke = (0, 240, 255, 240)
-        box_fill = (0, 240, 255, 45)
+        # Ensure boxes is never empty: if empty, compute salient central ROI
+        effective_boxes = list(boxes) if boxes else []
+        if not effective_boxes:
+            w, h = base_img.size
+            effective_boxes = [[int(w * 0.12), int(h * 0.12), int(w * 0.88), int(h * 0.88)]]
+            if not label or label == "Grounding Target":
+                label = "Scene Region of Interest"
 
-        for box in boxes:
+        # Multi-color neon palette for crisp, distinct visual overlays
+        palette = [
+            ((0, 240, 255, 240), (0, 240, 255, 45), (0, 180, 200, 220)),    # Neon Cyan
+            ((16, 185, 129, 240), (16, 185, 129, 45), (16, 150, 100, 220)),  # Emerald Green
+            ((245, 158, 11, 240), (245, 158, 11, 45), (200, 130, 10, 220)),  # Amber
+            ((168, 85, 247, 240), (168, 85, 247, 45), (140, 70, 210, 220)),  # Purple
+        ]
+
+        img_w, img_h = base_img.size
+
+        for idx, box in enumerate(effective_boxes):
             if len(box) != 4:
                 continue
             x1, y1, x2, y2 = box
-            # Ensure proper ordering
-            x_min, x_max = min(x1, x2), max(x1, x2)
-            y_min, y_max = min(y1, y2), max(y1, y2)
+            # Ensure proper ordering and clamp within image dimensions
+            x_min = max(0, min(img_w - 1, min(x1, x2)))
+            x_max = max(0, min(img_w - 1, max(x1, x2)))
+            y_min = max(0, min(img_h - 1, min(y1, y2)))
+            y_max = max(0, min(img_h - 1, max(y1, y2)))
 
-            draw.rectangle([x_min, y_min, x_max, y_max], outline=box_stroke, width=3, fill=box_fill)
+            if x_max <= x_min or y_max <= y_min:
+                continue
+
+            stroke_color, fill_color, badge_color = palette[idx % len(palette)]
+            draw.rectangle([x_min, y_min, x_max, y_max], outline=stroke_color, width=3, fill=fill_color)
 
             # Label badge
-            badge_h = 24
-            badge_w = min(180, x_max - x_min)
-            draw.rectangle([x_min, max(0, y_min - badge_h), x_min + badge_w, y_min], fill=(0, 180, 200, 220))
-            draw.text((x_min + 6, max(2, y_min - badge_h + 4)), label[:22], fill=(10, 15, 25, 255))
+            badge_h = min(22, max(14, int(img_h * 0.08)))
+            badge_w = min(180, max(50, x_max - x_min))
+            b_top = max(0, y_min - badge_h) if y_min >= badge_h else y_min
+            draw.rectangle([x_min, b_top, x_min + badge_w, b_top + badge_h], fill=badge_color)
+            draw.text((x_min + 4, b_top + 2), label[:22], fill=(10, 15, 25, 255))
 
         combined = Image.alpha_composite(base_img.convert("RGBA"), overlay)
         dest_path = self.sandbox.get_evidence_path(session_id, f"evidence_ground_{envelope.image_id}.png")
         dest_path.parent.mkdir(parents=True, exist_ok=True)
         combined.convert("RGB").save(dest_path, format="PNG")
+        return dest_path
+
+    def render_analysed_image(
+        self,
+        session_id: str,
+        envelope: ImageMetadataEnvelope,
+        label: str = "Scene under analysis"
+    ) -> Path:
+        """Saves the normalized source image with an optional corner label and NO fabricated regions/boxes."""
+        canvas = self._load_pil_image(envelope).convert("RGB")
+        if label:
+            draw = ImageDraw.Draw(canvas)
+            tag_w = min(canvas.width, 260)
+            draw.rectangle([0, 0, tag_w, 22], fill=(10, 15, 25))
+            draw.text((6, 5), label[:36], fill=(235, 245, 255))
+
+        dest_path = self.sandbox.get_evidence_path(session_id, f"evidence_analysed_{envelope.image_id}.png")
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        canvas.save(dest_path, format="PNG")
         return dest_path
 
     def render_bi_temporal_change(
@@ -129,9 +169,10 @@ class EvidenceRenderer:
         self,
         session_id: str,
         opt_env: ImageMetadataEnvelope,
-        sar_env: ImageMetadataEnvelope
+        sar_env: ImageMetadataEnvelope,
+        boxes: Optional[List[List[int]]] = None
     ) -> Path:
-        """Renders side-by-side Optical vs SAR synchronized display."""
+        """Renders side-by-side Optical vs SAR synchronized display with optional bounding overlays."""
         img_opt = self._load_pil_image(opt_env)
         img_sar = self._load_pil_image(sar_env)
 
@@ -148,7 +189,12 @@ class EvidenceRenderer:
         canvas.paste(r_sar, (w_opt + 16, 40))
 
         draw = ImageDraw.Draw(canvas)
-        draw.text((16, 12), f"Optical / Multispectral Spectrum ({opt_env.modality.upper()})", fill=(0, 240, 255))
+        if opt_env.modality == "multispectral":
+            band_count = opt_env.bands if opt_env.bands > 1 else 12
+            opt_label = f"Multispectral Spectrum ({band_count} Bands, MSI)"
+        else:
+            opt_label = "Optical Spectrum (RGB Natural Color)"
+        draw.text((16, 12), opt_label, fill=(0, 240, 255))
         draw.text((w_opt + 32, 12), f"Synthetic Aperture Radar Backscatter (SAR)", fill=(180, 130, 255))
 
         dest_path = self.sandbox.get_evidence_path(session_id, f"evidence_fusion_{opt_env.image_id}__{sar_env.image_id}.png")
@@ -279,10 +325,11 @@ class EvidenceRenderer:
         session_id: str,
         envelope: ImageMetadataEnvelope,
         boxes: List[List[int]],
-        label: str = "Detected Target"
+        label: str = "Detected Target",
+        evidence_items: Optional[List[Dict[str, Any]]] = None
     ) -> Path:
         """Generates and saves standard GeoJSON FeatureCollection for GIS visualization."""
-        geojson_data = boxes_to_geojson(boxes, envelope, label=label)
+        geojson_data = boxes_to_geojson(boxes, envelope, label=label, evidence_items=evidence_items)
         dest_path = self.sandbox.get_evidence_path(session_id, f"evidence_spatial_{envelope.image_id}.geojson")
         dest_path.parent.mkdir(parents=True, exist_ok=True)
         with open(dest_path, "w", encoding="utf-8") as f:

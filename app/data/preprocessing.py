@@ -146,20 +146,55 @@ class PreprocessingService:
             red = data[:, :, 2]
             nir = data[:, :, 3]
         elif data.ndim == 3 and data.shape[2] >= 3:
-            # Optical RGB: simulate Green-Red / VARI indices for proxy vegetation analysis
-            red = data[:, :, 0]
-            green = data[:, :, 1]
-            blue = data[:, :, 2]
-            nir = green * 1.35  # proxy NIR from high vegetative reflectance
+            # Optical RGB: simulate biophysical NIR proxy for vegetation vs water analysis
+            red = data[:, :, 0].astype(np.float32)
+            green = data[:, :, 1].astype(np.float32)
+            blue = data[:, :, 2].astype(np.float32)
+
+            max_val = float(np.max(data))
+            r_scaled = red if max_val > 1.0 else red * 255.0
+            g_scaled = green if max_val > 1.0 else green * 255.0
+            b_scaled = blue if max_val > 1.0 else blue * 255.0
+            lum = 0.299 * r_scaled + 0.587 * g_scaled + 0.114 * b_scaled
+
+            # 1. Vegetation Chlorophyll metrics:
+            # Excess Green index (2G - R - B) and Normalized Green-Red Difference Index (G - R)/(G + R)
+            exg = 2.0 * g_scaled - r_scaled - b_scaled
+            ngrdi = (g_scaled - r_scaled) / (g_scaled + r_scaled + 1e-6)
+
+            # 2. Genuine Open Water criteria:
+            # Water absorbs red light strongly (r < 35) with blue dominance (b > r*1.35 and b >= g*0.95),
+            # low luminance, and strictly non-vegetative signature (exg <= 0).
+            is_water = (
+                (b_scaled > r_scaled * 1.35) &
+                (b_scaled >= g_scaled * 0.95) &
+                (r_scaled < 35.0) &
+                (exg <= 0.0) &
+                (lum < 70.0)
+            )
+
+            # 3. Continuous biophysical NIR estimation:
+            # - Terrestrial base (soil, urban, asphalt, barren): NIR reflects higher than both red and green.
+            #   This guarantees that on all dry land, (green - nir) is negative (NDWI < 0.0).
+            base_nir = 1.15 * red + 0.20 * green
+
+            # - Vegetative boost: leaf cellular structure scatters NIR strongly when chlorophyll is active.
+            veg_strength = np.clip(ngrdi * 2.5, 0.0, 1.5)
+            veg_nir = green * (1.30 + veg_strength) + red * 0.10
+
+            nir_land = np.where((ngrdi > 0.02) & (exg > 0.0), veg_nir, base_nir)
+
+            # - Water absorption: water absorbs NIR almost entirely.
+            nir = np.where(is_water, green * 0.15, nir_land)
         elif data.ndim == 2:
             red = data
             green = data
-            nir = data * 1.1
+            nir = data * 1.25
             blue = data
         else:
             red = data[:, :, 0]
             green = data[:, :, 0]
-            nir = data[:, :, 0]
+            nir = data[:, :, 0] * 1.25
             blue = data[:, :, 0]
 
         # 1. NDVI Calculation: (NIR - Red) / (NIR + Red)
@@ -179,17 +214,21 @@ class PreprocessingService:
         water_body_pct = float(np.mean(ndwi > 0.15) * 100.0)
 
         # Colormap generation for NDVI: RdYlGn (Brown/Red -> Yellow -> Lush Green)
+        # Normalized range: 0 -> -1.0, 128 -> 0.0, 140 -> 0.10, 178 -> 0.40, 255 -> 1.0
         ndvi_norm = np.clip((ndvi + 1.0) / 2.0 * 255.0, 0, 255).astype(np.uint8)
         lut_ndvi = np.zeros((256, 3), dtype=np.uint8)
-        lut_ndvi[:85, 0] = 210
-        lut_ndvi[:85, 1] = np.linspace(40, 180, 85).astype(np.uint8)
-        lut_ndvi[:85, 2] = 30
-        lut_ndvi[85:170, 0] = np.linspace(210, 40, 85).astype(np.uint8)
-        lut_ndvi[85:170, 1] = 200
-        lut_ndvi[85:170, 2] = 40
-        lut_ndvi[170:, 0] = 16
-        lut_ndvi[170:, 1] = np.linspace(160, 245, 86).astype(np.uint8)
-        lut_ndvi[170:, 2] = 50
+        # < 0.10 (0..139): Barren / urban / soil (Terracotta Red)
+        lut_ndvi[:140, 0] = np.linspace(200, 220, 140).astype(np.uint8)
+        lut_ndvi[:140, 1] = np.linspace(40, 140, 140).astype(np.uint8)
+        lut_ndvi[:140, 2] = 30
+        # 0.10 .. 0.40 (140..178): Grassland / moderate vegetation (Golden Yellow / Lime)
+        lut_ndvi[140:179, 0] = np.linspace(220, 120, 39).astype(np.uint8)
+        lut_ndvi[140:179, 1] = np.linspace(180, 215, 39).astype(np.uint8)
+        lut_ndvi[140:179, 2] = np.linspace(35, 45, 39).astype(np.uint8)
+        # > 0.40 (179..255): Dense canopy / forest (Lush Forest Green)
+        lut_ndvi[179:, 0] = np.linspace(60, 16, 77).astype(np.uint8)
+        lut_ndvi[179:, 1] = np.linspace(190, 245, 77).astype(np.uint8)
+        lut_ndvi[179:, 2] = np.linspace(50, 45, 77).astype(np.uint8)
 
         img_ndvi = Image.fromarray(lut_ndvi[ndvi_norm])
         img_ndvi.thumbnail((384, 384), Image.Resampling.LANCZOS)
@@ -197,18 +236,24 @@ class PreprocessingService:
         img_ndvi.save(buf_ndvi, format="PNG")
         ndvi_b64 = f"data:image/png;base64,{base64.b64encode(buf_ndvi.getvalue()).decode('utf-8')}"
 
-        # Colormap generation for NDWI: YlGnBu / Cyan-Blue palette
+        # Colormap generation for NDWI: Calibrated strictly to physical water absorption
+        # 0..127 (NDWI < 0.0): Dry Land (Warm Earthy Soil / Ochre)
+        # 128..153 (0.0 <= NDWI < 0.20): Moist / Transition zone (Soft Cyan-Teal)
+        # 154..255 (NDWI >= 0.20): Open Water (Deep Ocean / Electric Blue)
         ndwi_norm = np.clip((ndwi + 1.0) / 2.0 * 255.0, 0, 255).astype(np.uint8)
         lut_ndwi = np.zeros((256, 3), dtype=np.uint8)
-        lut_ndwi[:110, 0] = np.linspace(190, 80, 110).astype(np.uint8)
-        lut_ndwi[:110, 1] = np.linspace(160, 70, 110).astype(np.uint8)
-        lut_ndwi[:110, 2] = 50
-        lut_ndwi[110:180, 0] = 40
-        lut_ndwi[110:180, 1] = np.linspace(160, 210, 70).astype(np.uint8)
-        lut_ndwi[110:180, 2] = 220
-        lut_ndwi[180:, 0] = np.linspace(20, 10, 76).astype(np.uint8)
-        lut_ndwi[180:, 1] = np.linspace(80, 40, 76).astype(np.uint8)
-        lut_ndwi[180:, 2] = np.linspace(220, 255, 76).astype(np.uint8)
+        # Dry Land (NDWI < 0.0 -> idx 0..127):
+        lut_ndwi[:128, 0] = np.linspace(175, 120, 128).astype(np.uint8)
+        lut_ndwi[:128, 1] = np.linspace(140, 95, 128).astype(np.uint8)
+        lut_ndwi[:128, 2] = np.linspace(70, 55, 128).astype(np.uint8)
+        # Moist / transition (0.0 <= NDWI < 0.20 -> idx 128..153):
+        lut_ndwi[128:154, 0] = np.linspace(50, 20, 26).astype(np.uint8)
+        lut_ndwi[128:154, 1] = np.linspace(150, 190, 26).astype(np.uint8)
+        lut_ndwi[128:154, 2] = np.linspace(180, 220, 26).astype(np.uint8)
+        # Open Water (NDWI >= 0.20 -> idx 154..255):
+        lut_ndwi[154:, 0] = np.linspace(15, 5, 102).astype(np.uint8)
+        lut_ndwi[154:, 1] = np.linspace(70, 30, 102).astype(np.uint8)
+        lut_ndwi[154:, 2] = np.linspace(220, 255, 102).astype(np.uint8)
 
         img_ndwi = Image.fromarray(lut_ndwi[ndwi_norm])
         img_ndwi.thumbnail((384, 384), Image.Resampling.LANCZOS)
