@@ -107,7 +107,7 @@ export default function AnswerCard({ result }) {
             </span>
           )}
 
-          {result.duration_ms && (
+          {typeof result.duration_ms === 'number' && (
             <span className="tag-pill mono" style={{ color: 'var(--text-muted)' }}>
               {result.duration_ms.toFixed(0)} ms
             </span>

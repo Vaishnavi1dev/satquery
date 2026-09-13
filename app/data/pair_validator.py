@@ -19,13 +19,35 @@ class PairValidationResult(BaseModel):
     warnings: List[str] = []
 
 
+def _require_valid_dimensions(width: int, height: int) -> None:
+    """Reject zero/negative image dimensions before any ratio arithmetic.
+
+    ``abs(a - b) / max(a, b)`` raises ``ZeroDivisionError`` when either image reports
+    a zero dimension, so every pairing path funnels through this shared guard first.
+    """
+    try:
+        width = int(width)
+        height = int(height)
+    except (TypeError, ValueError):
+        raise ValidationError("VAL_CORRUPT_IMAGE", "Image dimensions are invalid or corrupted.")
+    if width <= 0 or height <= 0:
+        raise ValidationError("VAL_CORRUPT_IMAGE", "Image dimensions are invalid or corrupted.")
+
+
+def _dimension_diff_pct(a: int, b: int) -> float:
+    """Percent dimension difference, safe when a dimension is zero."""
+    denom = max(int(a), int(b))
+    if denom <= 0:
+        return 0.0
+    return abs(int(a) - int(b)) / float(denom) * 100.0
+
+
 class PairValidator:
     """Validates compatibility of image inputs for remote-sensing workflows."""
 
     @staticmethod
     def validate_single(envelope: ImageMetadataEnvelope) -> PairValidationResult:
-        if envelope.width <= 0 or envelope.height <= 0:
-            raise ValidationError("VAL_CORRUPT_IMAGE", "Image dimensions are invalid or corrupted.")
+        _require_valid_dimensions(envelope.width, envelope.height)
         return PairValidationResult(is_valid=True, pair_type="single")
 
     @staticmethod
@@ -36,9 +58,12 @@ class PairValidator:
     ) -> PairValidationResult:
         warnings: List[str] = []
 
+        _require_valid_dimensions(img_t1.width, img_t1.height)
+        _require_valid_dimensions(img_t2.width, img_t2.height)
+
         # Check dimension compatibility
-        w_diff = abs(img_t1.width - img_t2.width) / max(img_t1.width, img_t2.width) * 100.0
-        h_diff = abs(img_t1.height - img_t2.height) / max(img_t1.height, img_t2.height) * 100.0
+        w_diff = _dimension_diff_pct(img_t1.width, img_t2.width)
+        h_diff = _dimension_diff_pct(img_t1.height, img_t2.height)
 
         # Dimension/GSD mismatch is non-fatal: the rendering and preprocessing stages
         # harmonize image sizes (resize/resample), so surface it as a warning instead of failing.
@@ -101,10 +126,12 @@ class PairValidator:
             )
 
         ref = images[0]
+        _require_valid_dimensions(ref.width, ref.height)
         warnings: List[str] = []
         for i, img in enumerate(images[1:], start=2):
-            w_diff = abs(ref.width - img.width) / max(ref.width, img.width) * 100.0
-            h_diff = abs(ref.height - img.height) / max(ref.height, img.height) * 100.0
+            _require_valid_dimensions(img.width, img.height)
+            w_diff = _dimension_diff_pct(ref.width, img.width)
+            h_diff = _dimension_diff_pct(ref.height, img.height)
             # Mismatched dimensions/GSD are surfaced as warnings because downstream
             # rendering and preprocessing harmonize sizes rather than resampling inputs here.
             if w_diff > tolerance_pct or h_diff > tolerance_pct:

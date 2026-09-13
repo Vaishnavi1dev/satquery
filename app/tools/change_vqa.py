@@ -17,9 +17,13 @@ class BiTemporalChangeVQATool(ToolBase):
 
         images = inputs.get("images", [])
         self.enforce_joint_use(images, required_count=2)
+        self.validate_image_envelopes(images, max_count=2)
 
+        image_modalities = [
+            self.normalize_modality(getattr(img, "modality", None)) for img in images
+        ]
         earthdial_key = self.runtime_mgr.earthdial_model_key_for(
-            [img.modality for img in images], self.model_key
+            image_modalities, self.model_key
         )
         self.runtime_mgr.ensure_model_loaded(earthdial_key, self.load_group)
 
@@ -30,7 +34,7 @@ class BiTemporalChangeVQATool(ToolBase):
         q_lower = query.lower()
         t1_env = images[0]
         t2_env = images[1]
-        modality = t2_env.modality
+        modality = image_modalities[1]
 
         real_result = None
         if getattr(t1_env, "filepath", None) and getattr(t2_env, "filepath", None):
@@ -52,9 +56,7 @@ class BiTemporalChangeVQATool(ToolBase):
         # instead of substituting fabricated values.
         measured_change = self._measure_change(t1_env, t2_env, orig_w, orig_h)
 
-        model_text = None
-        if real_result and real_result.get("text"):
-            model_text = real_result["text"].strip() or None
+        model_text = self.usable_model_text(real_result)
 
         boxes = None
         change_ratio = None
@@ -171,14 +173,17 @@ class BiTemporalChangeVQATool(ToolBase):
                 "geo_boxes": real_geo_boxes or None,
                 "confidence_basis": confidence_basis,
                 "inference_backend": (
-                    "checkpoint" if real_result
+                    "checkpoint" if model_text
                     else ("pixel_analysis" if measured_change else "unavailable")
                 ),
                 "earthdial_model_key": earthdial_key,
-                "checkpoint_dir": real_result.get("checkpoint_dir") if real_result else (
-                    str(self.runtime_mgr.get_checkpoint_dir(earthdial_key))
-                    if self.runtime_mgr.get_checkpoint_dir(earthdial_key)
-                    else None
+                "checkpoint_dir": (
+                    real_result.get("checkpoint_dir") if isinstance(real_result, dict)
+                    else (
+                        str(self.runtime_mgr.get_checkpoint_dir(earthdial_key))
+                        if self.runtime_mgr.get_checkpoint_dir(earthdial_key)
+                        else None
+                    )
                 ),
             }
         )
@@ -238,6 +243,8 @@ class BiTemporalChangeVQATool(ToolBase):
             if y2 - y1 < min_size:
                 y1 = max(0, y2 - min_size)
                 y2 = min(height, y1 + min_size)
+            if x2 - x1 < 1 or y2 - y1 < 1:
+                return None
             return {"changed_pct": float(np.mean(active) * 100), "box": [x1, y1, x2, y2]}
         except Exception:
             return None

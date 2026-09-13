@@ -43,6 +43,38 @@ class StorageSandbox:
         sdir = self._get_session_dir(session_id)
         return sdir / "traces"
 
+    @staticmethod
+    def sanitize_component(value: str, label: str = "path component") -> str:
+        """Validate a single filename component, rejecting separators and traversal.
+
+        Unlike ``Path(value).name`` (which silently strips directories), this rejects
+        the input outright so callers can respond with 404/400 instead of serving an
+        unintended file. Rejects ``/``, ``\\``, ``:``, ``..`` and NUL bytes.
+        """
+        if not isinstance(value, str) or not value:
+            raise ValueError(f"Invalid {label}: value is empty")
+        if value != Path(value).name:
+            raise ValueError(f"Invalid {label}: directory separators are not allowed")
+        if value in (".", "..") or ".." in value or "\x00" in value:
+            raise ValueError(f"Invalid {label}: path traversal is not allowed")
+        if any(ch in value for ch in ("/", "\\", ":")):
+            raise ValueError(f"Invalid {label}: illegal characters are not allowed")
+        return value
+
+    def get_trace_path(self, session_id: str, trace_id: str) -> Path:
+        """Resolves a trace JSONL path confined to ``<session>/traces``.
+
+        Raises ``ValueError`` for invalid/traversing ``trace_id`` values so the API
+        can return 404 instead of escaping the session directory.
+        """
+        clean_id = self.sanitize_component(trace_id, "trace_id")
+        sdir = self._get_session_dir(session_id)
+        traces_dir = (sdir / "traces").resolve()
+        target = (traces_dir / f"{clean_id}.jsonl").resolve()
+        if not target.is_relative_to(traces_dir):
+            raise ValueError(f"Path traversal detected for trace_id: {trace_id}")
+        return target
+
     def get_evidence_path(self, session_id: str, evidence_filename: str) -> Path:
         sdir = self._get_session_dir(session_id)
         clean_name = Path(evidence_filename).name

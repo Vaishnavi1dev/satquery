@@ -35,3 +35,40 @@ def test_compute_spectral_indices_rgb():
     assert "mean_ndvi" in indices
     assert "ndvi_overlay_b64" in indices
     assert "ndwi_overlay_b64" in indices
+
+
+def test_compute_spectral_indices_sar_returns_not_applicable():
+    raw = np.zeros((8, 8, 4), dtype=np.float32)
+    result = compute_spectral_indices(raw, modality="sar")
+    assert result["applicable"] is False
+    assert result["error"] == "SPECTRAL_INDICES_NOT_APPLICABLE"
+    assert result["mean_ndvi"] is None
+    assert result["ndvi_overlay_b64"] is None
+
+
+def test_compute_spectral_indices_rejects_degenerate_shapes():
+    zero_size = np.zeros((0, 0, 4), dtype=np.float32)
+    assert compute_spectral_indices(zero_size)["error"] == "SPECTRAL_INDICES_INVALID_INPUT"
+    two_d = np.zeros((4, 4), dtype=np.float32)
+    assert compute_spectral_indices(two_d, modality="optical")["error"] == "SPECTRAL_INDICES_INVALID_INPUT"
+    two_band = np.zeros((4, 4, 2), dtype=np.float32)
+    assert compute_spectral_indices(two_band)["error"] == "SPECTRAL_INDICES_INVALID_INPUT"
+
+
+def test_compute_spectral_indices_masks_non_finite_values():
+    import math
+
+    raw = np.zeros((8, 8, 4), dtype=np.float32)
+    raw[:, :, 0] = 0.2  # Blue
+    raw[:, :, 1] = 0.3  # Green
+    raw[:, :, 2] = 0.1  # Red
+    raw[:, :, 3] = 0.6  # NIR
+    raw[0, 0, 0] = np.nan
+    raw[0, 0, 1] = np.inf
+    raw[0, 0, 3] = -np.inf
+
+    result = compute_spectral_indices(raw, modality="multispectral")
+    assert result["applicable"] is True
+    assert math.isfinite(result["mean_ndvi"])
+    assert math.isfinite(result["mean_ndwi"])
+    assert math.isfinite(result["water_body_pct"])

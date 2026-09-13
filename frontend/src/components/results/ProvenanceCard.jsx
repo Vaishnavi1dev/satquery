@@ -55,7 +55,7 @@ export default function ProvenanceCard({ slotImages }) {
               <div className="provenance-field">
                 <span className="provenance-field-label">Spatial GSD</span>
                 <span className="provenance-field-val">
-                  {env.resolution_m ? `${env.resolution_m} m/pixel` : 'not provided'}
+                  {env.resolution_m != null ? `${env.resolution_m} m/pixel` : 'not provided'}
                 </span>
               </div>
 

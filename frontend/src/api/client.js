@@ -10,10 +10,22 @@ async function handleResponse(res) {
     let errorDetail = 'API request failed';
     try {
       const errorData = await res.json();
-      if (typeof errorData.detail === 'string') {
-        errorDetail = errorData.detail;
-      } else if (typeof errorData.detail === 'object') {
-        errorDetail = errorData.detail.message || JSON.stringify(errorData.detail);
+      const detail = errorData.detail;
+      if (typeof detail === 'string') {
+        errorDetail = detail;
+      } else if (Array.isArray(detail)) {
+        const joined = detail
+          .map((item) => {
+            const loc = Array.isArray(item?.loc)
+              ? item.loc.filter((p) => p !== 'body').join('.')
+              : null;
+            const msg = item?.msg || item?.message || JSON.stringify(item);
+            return loc ? `${loc}: ${msg}` : msg;
+          })
+          .join('; ');
+        if (joined) errorDetail = joined;
+      } else if (detail && typeof detail === 'object') {
+        errorDetail = detail.message || JSON.stringify(detail);
       } else if (errorData.message) {
         errorDetail = errorData.message;
       }
@@ -28,8 +40,8 @@ async function handleResponse(res) {
 }
 
 export const api = {
-  async getHealth() {
-    const res = await fetch(`${BASE_URL}/api/health`);
+  async getHealth(signal = null) {
+    const res = await fetch(`${BASE_URL}/api/health`, { signal });
     return handleResponse(res);
   },
 
@@ -89,10 +101,11 @@ export const api = {
     return handleResponse(res);
   },
 
-  async executeQuery(sessionId, query, imageIds, parameters = {}) {
+  async executeQuery(sessionId, query, imageIds, parameters = {}, signal = null) {
     const res = await fetch(`${BASE_URL}/api/query`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal,
       body: JSON.stringify({
         session_id: sessionId,
         query,

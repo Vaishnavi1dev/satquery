@@ -7,6 +7,7 @@ export default function UploadZone({
   onRemoveImage,       // (imageId) => void
   onStartFresh,        // () => void
   isUploading,         // boolean
+  canUpload = true,    // boolean - false until a workspace session exists
 }) {
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef(null);
@@ -24,6 +25,7 @@ export default function UploadZone({
   const handleDrop = async (e) => {
     e.preventDefault();
     setIsDragging(false);
+    if (!canUpload || isUploading) return;
     const files = Array.from(e.dataTransfer.files);
     if (files.length > 0) {
       await onUploadFiles(files);
@@ -32,6 +34,10 @@ export default function UploadZone({
 
   const handleFileInputChange = async (e) => {
     const files = Array.from(e.target.files);
+    if (!canUpload || isUploading) {
+      e.target.value = '';
+      return;
+    }
     if (files.length > 0) {
       await onUploadFiles(files);
       e.target.value = '';
@@ -81,7 +87,8 @@ export default function UploadZone({
           <button
             className="btn btn-ghost btn-sm"
             onClick={() => fileInputRef.current?.click()}
-            disabled={isUploading}
+            disabled={isUploading || !canUpload}
+            title={!canUpload ? 'Initializing workspace session…' : undefined}
             style={{ color: 'var(--cyan-400)', borderColor: 'rgba(6, 182, 212, 0.3)' }}
           >
             <Plus size={14} />
@@ -95,7 +102,7 @@ export default function UploadZone({
         <div className="upload-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
           {uploadedImages.map((env, index) => (
             <div
-              key={env.image_id || index}
+              key={`${env.image_id || 'upload'}-${index}`}
               className="glass-panel"
               style={{
                 padding: '1rem',
@@ -168,7 +175,7 @@ export default function UploadZone({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        onClick={() => fileInputRef.current?.click()}
+        onClick={() => { if (canUpload && !isUploading) fileInputRef.current?.click(); }}
       >
         <input
           type="file"

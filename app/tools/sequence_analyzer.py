@@ -68,6 +68,8 @@ def _measure_pair_change(filepath_a, filepath_b, width, height):
         if y2 - y1 < min_size:
             y1 = max(0, y2 - min_size)
             y2 = min(height, y1 + min_size)
+        if x2 - x1 < 1 or y2 - y1 < 1:
+            return None
         return {"changed_pct": float(np.mean(active) * 100), "box": [x1, y1, x2, y2]}
     except Exception:
         return None
@@ -91,9 +93,13 @@ class MultiTemporalSequenceTool(ToolBase):
                 "MDL_INSUFFICIENT_TEMPORAL_SEQUENCE",
                 f"Multi-temporal sequence analysis requires at least 3 co-registered images (T1...TN), got {len(images)}."
             )
+        self.validate_image_envelopes(images)
 
+        image_modalities = [
+            self.normalize_modality(getattr(img, "modality", None)) for img in images
+        ]
         earthdial_key = self.runtime_mgr.earthdial_model_key_for(
-            [img.modality for img in images], self.model_key
+            image_modalities, self.model_key
         )
         self.runtime_mgr.ensure_model_loaded(earthdial_key, self.load_group)
 
@@ -171,8 +177,7 @@ class MultiTemporalSequenceTool(ToolBase):
                     real = self.runtime_mgr.run_earthdial(
                         prompt, [fp_a, fp_b], clean_params, model_key=earthdial_key
                     )
-                    if real and real.get("text"):
-                        model_text = real["text"].strip() or None
+                    model_text = self.usable_model_text(real)
                 except Exception as exc:
                     self.runtime_mgr.load_errors[earthdial_key] = f"Inference: {type(exc).__name__}: {exc}"
             if model_text:
@@ -242,13 +247,16 @@ class MultiTemporalSequenceTool(ToolBase):
             phase_lines.append(f"• Phase {i+1} ({step_label}): {body} {suffix}")
         phase_block = "\n".join(phase_lines)
 
-        # Closing synthesis: report the real cumulative difference when it can be
-        # computed, otherwise say so honestly. Always mentions "cumulative".
+        # Closing synthesis: report the MEAN per-transition difference as the primary
+        # quantity. The cumulative sum of per-transition differences can legitimately
+        # exceed 100%, so it is labelled explicitly as a sum (the word "cumulative"
+        # is retained for the audit vocabulary).
+        mean_delta = cumulative_delta / measured_steps if measured_steps else None
         if all_measured:
-            mean_delta = cumulative_delta / total_steps if total_steps else 0.0
             synthesis_line = (
                 f"Synthesis Trend: across the entire sequence from T1 to T{num_steps}, the mean measured "
-                f"surface difference per transition was {mean_delta:.1f}% (cumulative {cumulative_delta:+.1f}%)."
+                f"surface difference per transition was {mean_delta:.1f}%. The cumulative sum of per-transition "
+                f"differences is {cumulative_delta:+.1f}% (this sum can exceed 100%)."
             )
         elif measured_steps == 0:
             synthesis_line = (
@@ -259,8 +267,9 @@ class MultiTemporalSequenceTool(ToolBase):
         else:
             synthesis_line = (
                 f"Synthesis Trend: across the entire sequence from T1 to T{num_steps}, the cumulative "
-                f"surface difference could only be partially computed from {measured_steps} of "
-                f"{total_steps} measured transitions ({cumulative_delta:+.1f}%)."
+                f"sum of per-transition differences could only be partially computed from {measured_steps} of "
+                f"{total_steps} measured transitions (mean {mean_delta:.1f}% per measured transition; "
+                f"sum {cumulative_delta:+.1f}%, which can exceed 100%)."
             )
 
         full_text = header + "\n" + phase_block + "\n\n" + synthesis_line
@@ -285,7 +294,9 @@ class MultiTemporalSequenceTool(ToolBase):
                 "description": f"Continuous temporal trajectory analyzed across {num_steps} observation epochs.",
                 "total_transitions": len(temporal_events),
                 "measured_transitions": measured_steps,
+                "mean_delta_pct": round(mean_delta, 1) if (any_measured and mean_delta is not None) else None,
                 "cumulative_delta_pct": round(cumulative_delta, 1) if any_measured else None,
+                "cumulative_delta_label": "sum of per-transition differences (can exceed 100%)",
             }
         ]
 
@@ -316,6 +327,8 @@ class MultiTemporalSequenceTool(ToolBase):
                 "sequence_length": num_steps,
                 "temporal_events": temporal_events,
                 "cumulative_delta_pct": round(cumulative_delta, 1) if any_measured else None,
+                "cumulative_delta_label": "sum of per-transition differences (can exceed 100%)",
+                "mean_delta_pct": round(mean_delta, 1) if (any_measured and mean_delta is not None) else None,
                 "measured_transitions": measured_steps,
                 "confidence_basis": confidence_basis,
                 "inference_backend": (

@@ -10,6 +10,52 @@ from PIL import Image
 import tifffile
 from pydantic import BaseModel, Field
 
+# Explicit decompression-bomb policy: PIL raises DecompressionBombError above this,
+# and ``_open_raster`` pre-checks dimensions against it before allocating an array.
+MAX_IMAGE_PIXELS = 512 * 1024 * 1024
+Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
+
+
+def _corrupt_image(message: str):
+    """Build a VAL_CORRUPT_IMAGE ValidationError without importing eagerly.
+
+    ``pair_validator`` imports this module, so the shared ValidationError type is
+    imported lazily at call time to avoid a circular import.
+    """
+    from app.data.pair_validator import ValidationError
+
+    return ValidationError("VAL_CORRUPT_IMAGE", message)
+
+
+def _finite_bounds(value) -> Optional[List[float]]:
+    """Return four finite floats, or None when bounds are absent/malformed.
+
+    Non-finite bounds otherwise propagate NaN/Inf into ``geo_box`` strings and
+    GeoJSON, producing invalid JSON and a 500 on ``allow_nan=False``.
+    """
+    if not isinstance(value, (list, tuple)) or len(value) != 4:
+        return None
+    try:
+        bounds = [float(v) for v in value]
+    except (TypeError, ValueError):
+        return None
+    if not all(math.isfinite(v) for v in bounds):
+        return None
+    return bounds
+
+
+def _finite_box(box) -> Optional[List[float]]:
+    """Return four finite floats for a pixel box, or None when malformed."""
+    if not isinstance(box, (list, tuple)) or len(box) != 4:
+        return None
+    try:
+        values = [float(v) for v in box]
+    except (TypeError, ValueError):
+        return None
+    if not all(math.isfinite(v) for v in values):
+        return None
+    return values
+
 
 class ImageMetadataEnvelope(BaseModel):
     image_id: str
@@ -47,95 +93,144 @@ class ImageIngestionService:
         return hashlib.sha256(file_bytes).hexdigest()
 
     def detect_modality(self, filename: str, shape: tuple, tags: Dict[str, Any], data: Optional[np.ndarray] = None) -> str:
+        """Infer modality from explicit evidence before falling back to heuristics.
+
+        Ordering matters: real satellite filenames routinely contain content words
+        such as ``urban``, ``water`` or ``rgb`` that describe the scene, not the
+        sensor, so explicit SAR tokens and tag metadata are authoritative. Band count
+        is the next signal, and scene-content words are only a last-resort tie-breaker.
+        """
         fn_lower = filename.lower()
         bands = shape[2] if len(shape) == 3 else 1
 
-        # 1. Check explicit filename markers for Optical / Multispectral first
-        if any(marker in fn_lower for marker in ["multispectral", "msi", "sentinel-2", "sentinel2", "ben-ge", "landsat", "b04_b08", "b08", "ndvi", "ndwi", "water", "urban", "optical", "rgb"]):
-            return "multispectral" if bands > 3 or "multi" in fn_lower else "optical"
-
-        # 2. Check explicit filename markers for SAR / Radar
+        # 1. Explicit SAR / radar evidence in the filename.
         sar_tokens = ["sentinel-1", "sentinel1", "risat", "_sar", "sar_", "-sar", "c-band", "cband", "radar"]
-        if any(marker in fn_lower for marker in sar_tokens) or fn_lower.startswith("sar") or re.search(r"\bsar\b", fn_lower):
-            return "sar"
+        is_sar_name = (
+            any(marker in fn_lower for marker in sar_tokens)
+            or fn_lower.startswith("sar")
+            or re.search(r"\bsar\b", fn_lower) is not None
+        )
 
-        # 3. Check tag metadata for SAR polarization (do NOT match substring 'sar' inside 'isarea'!)
+        # 2. SAR polarization / calibration metadata. The word-boundary regex avoids
+        #    matching the substring 'sar' inside an unrelated token such as 'isarea'.
         tag_str = str(tags).lower()
-        if any(p in tag_str for p in ["polarisation", "polarization", "c-band", "backscatter", "sigma0", "gamma0", "sentinel-1"]) or re.search(r"\bsar\b", tag_str):
+        is_sar_tag = (
+            any(p in tag_str for p in ["polarisation", "polarization", "c-band", "backscatter", "sigma0", "gamma0", "sentinel-1"])
+            or re.search(r"\bsar\b", tag_str) is not None
+        )
+        if is_sar_name or is_sar_tag:
             return "sar"
 
-        # 4. Check band counts
+        # 3. Genuine optical / multispectral sensor designators (never scene-content
+        #    words such as water, urban, rgb, b08 or ndvi).
+        optical_tokens = [
+            "multispectral", "msi", "sentinel-2", "sentinel2", "ben-ge", "landsat",
+            "b04_b08", "optical", "panchromatic", "pan", "cartosat", "hyperspectral",
+        ]
+        is_optical_name = any(marker in fn_lower for marker in optical_tokens)
+
+        # 4. Band-count consistency with the designators above.
         if bands > 3:
             return "multispectral"
-        elif bands == 2:
-            # Dual-polarization radar (e.g. VV + VH)
+        if bands == 2:
+            # Dual-polarization radar (e.g. VV + VH).
             return "sar"
-        elif bands == 1:
-            # Single band optical panchromatic or SAR
-            if "pan" in fn_lower or "cartosat" in fn_lower or "opt" in fn_lower:
-                return "optical"
-            return "sar"
+        if bands == 1:
+            # Single-band data is SAR unless a real optical designator is present.
+            return "optical" if is_optical_name else "sar"
 
-        # 5. Autonomous Pixel-Data Inspection (for 3-band / RGB encoded imagery)
+        # bands == 3: content words are only a tie-breaker.
+        if is_optical_name and "multi" in fn_lower:
+            return "multispectral"
+
+        # 5. Autonomous pixel inspection for 3-band imagery: grayscale encoded as RGB
+        #    is a common SAR radar product; strong chroma indicates natural color.
         if data is not None and bands == 3:
-            # Check if all 3 color channels are identical (grayscale encoded as RGB, standard in SAR radar products)
             ch_diff_rg = np.mean(np.abs(data[:, :, 0].astype(np.float32) - data[:, :, 1].astype(np.float32)))
             ch_diff_gb = np.mean(np.abs(data[:, :, 1].astype(np.float32) - data[:, :, 2].astype(np.float32)))
             is_monochrome = (ch_diff_rg < 3.0 and ch_diff_gb < 3.0)
-
             if is_monochrome:
-                # In remote sensing, monochrome images are either panchromatic optical or SAR radar backscatter.
                 mean_val = float(np.mean(data))
                 std_val = float(np.std(data))
                 cv = std_val / (mean_val + 1e-6)
                 if cv > 0.35:
                     return "sar"
             else:
-                # Significant color variance across RGB -> Natural/false-color optical
                 return "multispectral" if "multi" in fn_lower else "optical"
 
         return "optical"
+
+    def _open_raster(self, file_path: Path) -> np.ndarray:
+        """Decode a raster with PIL, rejecting empty/oversized/corrupt images.
+
+        Dimensions are checked from the lazy header before ``np.array`` materializes
+        the full buffer, so a decompression bomb is rejected without an allocation.
+        """
+        with Image.open(file_path) as pil_img:
+            width, height = pil_img.size
+            if width <= 0 or height <= 0:
+                raise ValueError("Image dimensions are invalid or corrupted.")
+            if width * height > MAX_IMAGE_PIXELS:
+                raise ValueError(
+                    f"Image exceeds the maximum supported pixel count ({MAX_IMAGE_PIXELS})."
+                )
+            return np.array(pil_img)
 
     def read_image_data(self, file_path: Path) -> tuple[np.ndarray, Dict[str, Any]]:
         suffix = file_path.suffix.lower()
         tags: Dict[str, Any] = {}
 
-        if suffix in [".tif", ".tiff"]:
-            try:
-                with tifffile.TiffFile(str(file_path)) as tif:
-                    data = tif.asarray()
-                    if tif.geotiff_metadata:
-                        tags["geotiff"] = tif.geotiff_metadata
-                        meta = tif.geotiff_metadata
-                        scale = meta.get("ModelPixelScale")
-                        tie = meta.get("ModelTiepoint")
-                        if tie and scale and len(tie) >= 5 and len(scale) >= 2:
-                            x0, y0 = float(tie[3]), float(tie[4])
-                            sx, sy = float(scale[0]), float(scale[1])
-                            h_tif, w_tif = data.shape[:2]
-                            x1 = x0 + w_tif * sx
-                            y1 = y0 - h_tif * sy
+        try:
+            if suffix in [".tif", ".tiff"]:
+                try:
+                    with tifffile.TiffFile(str(file_path)) as tif:
+                        page = tif.pages[0]
+                        pixel_count = 1
+                        for dim in page.shape:
+                            pixel_count *= int(dim)
+                        if pixel_count > MAX_IMAGE_PIXELS:
+                            raise ValueError(
+                                f"Image exceeds the maximum supported pixel count ({MAX_IMAGE_PIXELS})."
+                            )
+                        data = tif.asarray()
+                        if tif.geotiff_metadata:
+                            tags["geotiff"] = tif.geotiff_metadata
+                            meta = tif.geotiff_metadata
+                            scale = meta.get("ModelPixelScale")
+                            tie = meta.get("ModelTiepoint")
+                            if tie and scale and len(tie) >= 5 and len(scale) >= 2:
+                                x0, y0 = float(tie[3]), float(tie[4])
+                                sx, sy = float(scale[0]), float(scale[1])
+                                h_tif, w_tif = data.shape[:2]
+                                x1 = x0 + w_tif * sx
+                                y1 = y0 - h_tif * sy
 
-                            proj_cs = meta.get("ProjectedCSTypeGeoKey")
-                            if proj_cs == 3857 or "pseudo-mercator" in str(meta).lower():
-                                def _m2w(mx: float, my: float):
-                                    lon = (mx / 20037508.342789244) * 180.0
-                                    lat = 180.0 / math.pi * (2.0 * math.atan(math.exp((my / 20037508.342789244) * math.pi)) - math.pi / 2.0)
-                                    return round(lon, 6), round(lat, 6)
-                                min_lon, min_lat = _m2w(x0, y1)
-                                max_lon, max_lat = _m2w(x1, y0)
-                                tags["bounds"] = [min_lon, min_lat, max_lon, max_lat]
-                                tags["crs"] = "EPSG:4326"
-                            elif proj_cs == 4326 or "wgs 84" in str(meta).lower():
-                                tags["bounds"] = [round(x0, 6), round(y1, 6), round(x1, 6), round(y0, 6)]
-                                tags["crs"] = "EPSG:4326"
-            except Exception as e:
-                # Fallback to PIL
-                pil_img = Image.open(file_path)
-                data = np.array(pil_img)
-        else:
-            pil_img = Image.open(file_path)
-            data = np.array(pil_img)
+                                proj_cs = meta.get("ProjectedCSTypeGeoKey")
+                                if proj_cs == 3857 or "pseudo-mercator" in str(meta).lower():
+                                    def _m2w(mx: float, my: float):
+                                        lon = (mx / 20037508.342789244) * 180.0
+                                        lat = 180.0 / math.pi * (2.0 * math.atan(math.exp((my / 20037508.342789244) * math.pi)) - math.pi / 2.0)
+                                        return round(lon, 6), round(lat, 6)
+                                    min_lon, min_lat = _m2w(x0, y1)
+                                    max_lon, max_lat = _m2w(x1, y0)
+                                    tags["bounds"] = [min_lon, min_lat, max_lon, max_lat]
+                                    tags["crs"] = "EPSG:4326"
+                                elif proj_cs == 4326 or "wgs 84" in str(meta).lower():
+                                    tags["bounds"] = [round(x0, 6), round(y1, 6), round(x1, 6), round(y0, 6)]
+                                    tags["crs"] = "EPSG:4326"
+                except Exception:
+                    # Fall back to PIL for non-GeoTIFF TIFFs, partial files, or
+                    # compression bombs that PIL can still identify and reject cleanly.
+                    data = self._open_raster(file_path)
+            else:
+                data = self._open_raster(file_path)
+        except Exception as exc:
+            raise _corrupt_image(
+                f"Could not decode image '{file_path.name}': {type(exc).__name__}: {exc}"
+            ) from exc
+
+        if data is None or data.size == 0:
+            raise _corrupt_image(f"Image '{file_path.name}' contains no pixel data.")
 
         # Standardize shape to (H, W, C)
         if data.ndim == 2:
@@ -205,6 +300,9 @@ class ImageIngestionService:
         sha256_hash = self.compute_sha256(file_bytes)
         data, tags = self.read_image_data(dest_path)
 
+        if data.ndim < 2 or data.shape[0] <= 0 or data.shape[1] <= 0 or data.size == 0:
+            raise _corrupt_image(f"Image '{filename}' is empty or has invalid dimensions.")
+
         height, width = data.shape[0], data.shape[1]
         bands = data.shape[2] if data.ndim == 3 else 1
         dtype_str = str(data.dtype)
@@ -216,8 +314,9 @@ class ImageIngestionService:
 
         # Carry only georeferencing the file actually provides. Never invent an
         # AOI, a CRS, a resolution, or a named satellite platform for plain imagery.
-        raw_bounds = tags.get("bounds")
-        real_bounds = raw_bounds if isinstance(raw_bounds, list) and len(raw_bounds) == 4 else None
+        # Only four genuinely finite bounds are ever carried through; a NaN/Inf bound
+        # would otherwise poison geo_box strings and GeoJSON serialization.
+        real_bounds = _finite_bounds(tags.get("bounds"))
 
         envelope = ImageMetadataEnvelope(
             image_id=image_id,
@@ -246,18 +345,23 @@ def pixel_box_to_geo(box: List[int], envelope: ImageMetadataEnvelope) -> Optiona
     """
     Transforms pixel bounding box [x1, y1, x2, y2] into real-world geographic coordinates.
 
-    Returns ``None`` when the source image carries no genuine georeferencing; no
-    default or inferred AOI is ever substituted.
+    Returns ``None`` when the source image carries no genuine (finite) georeferencing
+    or when the box itself is malformed/non-finite; no default or inferred AOI is ever
+    substituted.
     """
-    bounds = envelope.bounds
-    if not bounds or len(bounds) != 4:
+    bounds = _finite_bounds(envelope.bounds)
+    if bounds is None:
         return None
     min_lon, min_lat, max_lon, max_lat = bounds
+
+    box_values = _finite_box(box)
+    if box_values is None:
+        return None
 
     w = max(1, envelope.width)
     h = max(1, envelope.height)
 
-    x1, y1, x2, y2 = box
+    x1, y1, x2, y2 = box_values
     fx1 = max(0.0, min(1.0, x1 / w))
     fx2 = max(0.0, min(1.0, x2 / w))
     fy1 = max(0.0, min(1.0, y1 / h))
@@ -268,13 +372,13 @@ def pixel_box_to_geo(box: List[int], envelope: ImageMetadataEnvelope) -> Optiona
     b_max_lat = round(max_lat - fy1 * (max_lat - min_lat), 5)
     b_min_lat = round(max_lat - fy2 * (max_lat - min_lat), 5)
 
-    lat1_str = f"{abs(b_min_lat):.4f}°{'N' if b_min_lat >= 0 else 'S'}"
-    lon1_str = f"{abs(b_min_lon):.4f}°{'E' if b_min_lon >= 0 else 'W'}"
-    lat2_str = f"{abs(b_max_lat):.4f}°{'N' if b_max_lat >= 0 else 'S'}"
-    lon2_str = f"{abs(b_max_lon):.4f}°{'E' if b_max_lon >= 0 else 'W'}"
+    lat1_str = f"{abs(b_min_lat):.4f}\u00b0{'N' if b_min_lat >= 0 else 'S'}"
+    lon1_str = f"{abs(b_min_lon):.4f}\u00b0{'E' if b_min_lon >= 0 else 'W'}"
+    lat2_str = f"{abs(b_max_lat):.4f}\u00b0{'N' if b_max_lat >= 0 else 'S'}"
+    lon2_str = f"{abs(b_max_lon):.4f}\u00b0{'E' if b_max_lon >= 0 else 'W'}"
 
     return {
-        "pixel_box": [x1, y1, x2, y2],
+        "pixel_box": list(box),
         "geo_box": [b_min_lon, b_min_lat, b_max_lon, b_max_lat],
         "formatted_coords": f"[{lat1_str}, {lon1_str}] to [{lat2_str}, {lon2_str}]",
         "crs": envelope.crs
@@ -295,7 +399,7 @@ def boxes_to_geojson(
         "built_up": "#f59e0b",             # Urban Amber / Orange
     }
 
-    if not envelope.bounds or len(envelope.bounds) != 4:
+    if _finite_bounds(envelope.bounds) is None:
         return {
             "type": "FeatureCollection",
             "crs": {
@@ -306,9 +410,31 @@ def boxes_to_geojson(
             "note": "No georeferencing available; no geographic features were generated."
         }
 
+    # Evidence carrying a real region is matched to boxes by region equality. Generic
+    # evidence without regions (e.g. per-image provenance) may still align by index.
+    region_indexed = any(
+        _finite_box(ev.get("region")) is not None for ev in (evidence_items or [])
+    )
+
+    def _match_evidence(box_values, idx):
+        if not evidence_items:
+            return None
+        if region_indexed:
+            for ev in evidence_items:
+                if _finite_box(ev.get("region")) == box_values:
+                    return ev
+            return None
+        if idx < len(evidence_items):
+            return evidence_items[idx]
+        return None
+
     features = []
     for idx, box in enumerate(boxes):
-        geo_info = pixel_box_to_geo(box, envelope)
+        box_values = _finite_box(box)
+        if box_values is None:
+            # Malformed / non-finite box: skip it rather than emit invalid geometry.
+            continue
+        geo_info = pixel_box_to_geo(list(box), envelope)
         if geo_info is None:
             continue
         min_lon, min_lat, max_lon, max_lat = geo_info["geo_box"]
@@ -320,7 +446,12 @@ def boxes_to_geojson(
             [min_lon, min_lat]
         ]]
 
-        ev_item = evidence_items[idx] if (evidence_items and idx < len(evidence_items)) else {}
+        ev_item = _match_evidence(box_values, idx)
+        if ev_item is None and region_indexed:
+            # Region-keyed evidence exists but none matches this box: skip it instead
+            # of applying another box's category/color by position.
+            continue
+        ev_item = ev_item or {}
         item_cat = ev_item.get("type") or ev_item.get("category") or "general_target"
         item_label = ev_item.get("label") or label
         item_desc = ev_item.get("description") or ""
@@ -337,7 +468,7 @@ def boxes_to_geojson(
                 "description": item_desc,
                 "confidence": item_score,
                 "formatted_coords": geo_info["formatted_coords"],
-                "pixel_box": box,
+                "pixel_box": list(box),
                 "sensor": envelope.sensor,
                 "modality": envelope.modality
             },
@@ -355,4 +486,3 @@ def boxes_to_geojson(
         },
         "features": features
     }
-

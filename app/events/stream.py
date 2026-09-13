@@ -1,9 +1,22 @@
 import json
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel, Field
+import numpy as np
+
+
+def _json_default(obj: Any):
+    """JSON fallback for numpy scalars/arrays and other non-JSON payload values."""
+    if isinstance(obj, np.generic):
+        return obj.item()
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, Path):
+        return str(obj)
+    return str(obj)
 
 
 class TraceEvent(BaseModel):
@@ -56,6 +69,8 @@ class EventStream:
         self.events: List[TraceEvent] = []
         self._start_time = time.time()
         self._step_start_times: Dict[str, float] = {}
+        self._lock = threading.Lock()
+        self._event_seq = 0
 
         if self.log_dir:
             self.log_dir.mkdir(parents=True, exist_ok=True)
@@ -71,21 +86,29 @@ class EventStream:
         start = self._step_start_times.get(step_name, now)
         duration_ms = (now - start) * 1000.0
 
-        event = TraceEvent(
-            event_id=f"evt_{len(self.events) + 1:04d}",
-            trace_id=self.trace_id,
-            session_id=self.session_id,
-            event_type=event_type,
-            step_name=step_name,
-            status=status,
-            payload=payload or {},
-            duration_ms=round(duration_ms, 2)
-        )
-        self.events.append(event)
+        # Serialize the whole read-modify-write under a lock so concurrent emits
+        # cannot reuse an event id, interleave, or corrupt JSONL lines.
+        with self._lock:
+            self._event_seq += 1
+            event = TraceEvent(
+                event_id=f"evt_{self._event_seq:04d}",
+                trace_id=self.trace_id,
+                session_id=self.session_id,
+                event_type=event_type,
+                step_name=step_name,
+                status=status,
+                payload=payload or {},
+                duration_ms=round(duration_ms, 2)
+            )
 
-        if self.log_file:
-            with open(self.log_file, "a", encoding="utf-8") as f:
-                f.write(event.model_dump_json() + "\n")
+            # Persist first: a failed write must not leave the event half-recorded
+            # in memory or a truncated line on disk.
+            if self.log_file:
+                line = json.dumps(event.model_dump(mode="python"), default=_json_default)
+                with open(self.log_file, "a", encoding="utf-8") as f:
+                    f.write(line + "\n")
+
+            self.events.append(event)
 
         return event
 

@@ -115,17 +115,18 @@ export default function InteractiveMapViewer({ result, slotImages, sessionId }) 
     return () => { isCancelled = true; };
   }, [result?.geojson_url]);
 
-  // Initialize Leaflet Map
+  // Initialize Leaflet Map (re-runs when georeference availability changes)
   useEffect(() => {
-    if (!mapContainerRef.current || !isGeoreferenced) return;
+    const container = mapContainerRef.current;
+    if (!container || !isGeoreferenced) return undefined;
 
     if (!mapInstanceRef.current) {
-      if (mapContainerRef.current._leaflet_id) {
-        delete mapContainerRef.current._leaflet_id;
+      if (container._leaflet_id) {
+        delete container._leaflet_id;
       }
 
       const initialCenter = getInitialCoordinates();
-      const map = L.map(mapContainerRef.current, {
+      const map = L.map(container, {
         center: initialCenter || [0, 0],
         zoom: initialCenter ? 13 : 2,
         zoomControl: false,
@@ -165,11 +166,12 @@ export default function InteractiveMapViewer({ result, slotImages, sessionId }) 
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
       }
-      if (mapContainerRef.current && mapContainerRef.current._leaflet_id) {
-        delete mapContainerRef.current._leaflet_id;
+      tileLayerRef.current = null;
+      if (container && container._leaflet_id) {
+        delete container._leaflet_id;
       }
     };
-  }, []);
+  }, [isGeoreferenced]);
 
   // Update Basemap Tiles when state changes
   useEffect(() => {
@@ -228,9 +230,9 @@ export default function InteractiveMapViewer({ result, slotImages, sessionId }) 
             </div>
             <div style="font-size: 11px; color: #475569; display: flex; flex-direction: column; gap: 3px;">
               ${props.category ? `<div><strong>Classification:</strong> <span style="color: ${color}; font-weight: 600;">${props.category.toUpperCase()}</span></div>` : ''}
-              ${props.confidence ? `<div><strong>Confidence:</strong> ${(props.confidence * 100).toFixed(1)}%</div>` : ''}
+              ${typeof props.confidence === 'number' ? `<div><strong>Confidence:</strong> ${(props.confidence * 100).toFixed(1)}%</div>` : ''}
               ${props.description ? `<div style="margin-top: 4px; font-size: 10px; color: #64748b; line-height: 1.3;">${props.description}</div>` : ''}
-              ${props.area_km2 ? `<div><strong>Area:</strong> ${props.area_km2.toFixed(3)} km²</div>` : ''}
+              ${typeof props.area_km2 === 'number' ? `<div><strong>Area:</strong> ${props.area_km2.toFixed(3)} km²</div>` : ''}
             </div>
           </div>
         `);

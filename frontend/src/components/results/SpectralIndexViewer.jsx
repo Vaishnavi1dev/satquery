@@ -10,22 +10,24 @@ export default function SpectralIndexViewer({ sessionId, activeImageId, original
   const [blendOpacity, setBlendOpacity] = useState(0.85);
 
   useEffect(() => {
+    let isCancelled = false;
     async function loadIndices() {
       if (!sessionId || !activeImageId) return;
       try {
         setIsLoading(true);
         setError(null);
         const res = await api.getSpectralIndices(sessionId, activeImageId);
-        if (res && res.indices) {
+        if (!isCancelled && res && res.indices) {
           setData(res.indices);
         }
       } catch (err) {
-        setError(err.message);
+        if (!isCancelled) setError(err.message);
       } finally {
-        setIsLoading(false);
+        if (!isCancelled) setIsLoading(false);
       }
     }
     loadIndices();
+    return () => { isCancelled = true; };
   }, [sessionId, activeImageId]);
 
   if (isLoading) {

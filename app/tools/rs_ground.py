@@ -4,6 +4,7 @@ import ast
 from typing import Dict, Any, Optional, List
 from app.tools.base import ToolBase, ToolOutput
 from app.data.preprocessing import PreprocessingService
+from app.runtime.manager import ModelExecutionError
 
 
 class TextGuidedGroundingTool(ToolBase):
@@ -21,8 +22,13 @@ class TextGuidedGroundingTool(ToolBase):
         clean_params = self.validate_and_filter_params(parameters)
 
         query = inputs.get("query", "").strip()
+        if not query:
+            raise ModelExecutionError("MDL_EMPTY_QUERY", "Grounding query string cannot be empty.")
+
         envelope = inputs.get("envelope")
-        modality = getattr(envelope, "modality", None) or inputs.get("modality", "optical")
+        modality = self.normalize_modality(
+            getattr(envelope, "modality", None) or inputs.get("modality") or "optical"
+        )
         transform_meta = inputs.get("transform_meta", {})
         earthdial_key = self.runtime_mgr.earthdial_model_key_for([modality], self.model_key)
         self.runtime_mgr.ensure_model_loaded(earthdial_key, self.load_group)
@@ -55,15 +61,22 @@ class TextGuidedGroundingTool(ToolBase):
                 metadata={"honesty_gate_triggered": True, "target": query}
             )
 
-        parsed_boxes = self._parse_model_boxes(real_result.get("text") if real_result else "")
+        model_text = self.usable_model_text(real_result)
+        parsed_boxes = self._parse_model_boxes(model_text or "")
 
         # Default EarthDial 0-1000 normalized coordinates [ymin, xmin, ymax, xmax]
         orig_w = envelope.width if envelope else 512
         orig_h = envelope.height if envelope else 512
 
+        has_transform = (
+            isinstance(transform_meta, dict)
+            and isinstance(transform_meta.get("orig_width"), (int, float))
+            and isinstance(transform_meta.get("orig_height"), (int, float))
+        )
+
         if parsed_boxes:
             # Only boxes the model actually emitted are reported.
-            if transform_meta:
+            if has_transform:
                 projected_boxes = self.prep_svc.project_boxes_to_original(parsed_boxes, transform_meta)
             else:
                 projected_boxes = [
@@ -123,8 +136,11 @@ class TextGuidedGroundingTool(ToolBase):
                 "confidence_basis": confidence_basis,
                 "box_count": len(projected_boxes),
                 "fine_tuned_weights_present": has_trained_weights,
-                "inference_backend": "checkpoint" if real_result else "simulation",
-                "checkpoint_dir": real_result.get("checkpoint_dir") if real_result else str(checkpoint_dir) if checkpoint_dir else None,
+                "inference_backend": "checkpoint" if model_text else "simulation",
+                "checkpoint_dir": (
+                    real_result.get("checkpoint_dir") if isinstance(real_result, dict)
+                    else (str(checkpoint_dir) if checkpoint_dir else None)
+                ),
             }
         )
 
@@ -132,7 +148,9 @@ class TextGuidedGroundingTool(ToolBase):
     def _parse_model_boxes(text: str) -> List[List[float]]:
         """Extract normalized [ymin, xmin, ymax, xmax] boxes from model text."""
         boxes: List[List[float]] = []
-        for match in re.findall(r"\[[^\[\]]{7,80}\]", text or ""):
+        if not isinstance(text, str):
+            return boxes
+        for match in re.findall(r"\[[^\[\]]{7,80}\]", text):
             try:
                 value = ast.literal_eval(match)
             except (ValueError, SyntaxError):

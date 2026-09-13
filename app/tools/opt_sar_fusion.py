@@ -23,13 +23,16 @@ class OpticalSARFusionTool(ToolBase):
 
         images = inputs.get("images", [])
         self.enforce_joint_use(images, required_count=2)
+        self.validate_image_envelopes(images, max_count=2)
 
         # Enforce that one image is Optical/MS and the other is SAR
         env1, env2 = images[0], images[1]
-        is_opt1 = env1.modality in ("optical", "multispectral")
-        is_sar1 = env1.modality == "sar"
-        is_opt2 = env2.modality in ("optical", "multispectral")
-        is_sar2 = env2.modality == "sar"
+        mod1 = self.normalize_modality(getattr(env1, "modality", None))
+        mod2 = self.normalize_modality(getattr(env2, "modality", None))
+        is_opt1 = mod1 in ("optical", "multispectral")
+        is_sar1 = mod1 == "sar"
+        is_opt2 = mod2 in ("optical", "multispectral")
+        is_sar2 = mod2 == "sar"
 
         if (is_opt1 and is_sar2):
             opt_env, sar_env = env1, env2
@@ -39,7 +42,7 @@ class OpticalSARFusionTool(ToolBase):
             raise ModelExecutionError(
                 "MDL_JOINT_USE_VIOLATION",
                 f"Tool 'opt-sar-fusion' requires one Optical/Multispectral image and one SAR image. "
-                f"Received modalities: '{env1.modality}' and '{env2.modality}'."
+                f"Received modalities: '{mod1}' and '{mod2}'."
             )
 
         self.runtime_mgr.ensure_model_loaded(self.model_key, self.load_group)
@@ -47,7 +50,8 @@ class OpticalSARFusionTool(ToolBase):
         query = inputs.get("query", "").strip()
         q_lower = query.lower()
 
-        opt_wls = self.prep_svc.get_dofa_wavelengths(opt_env.modality)
+        opt_modality = mod1 if is_opt1 else mod2
+        opt_wls = self.prep_svc.get_dofa_wavelengths(opt_modality)
         sar_wls = self.prep_svc.get_dofa_wavelengths("sar")
 
         real_result = None
@@ -103,6 +107,8 @@ class OpticalSARFusionTool(ToolBase):
             measured = True
         except Exception:
             # Images could not be read: report no numbers rather than invented values.
+            # Reset the class masks too so stale masks cannot still produce boxes.
+            is_veg = is_water = is_builtup = None
             veg_pct = water_pct = builtup_pct = soil_pct = None
 
         def _mask_box(mask):
@@ -137,9 +143,17 @@ class OpticalSARFusionTool(ToolBase):
         def _pct(value):
             return f"{value}%" if value is not None else "measurement unavailable"
 
-        if real_result:
+        token_confidence = None
+        if isinstance(real_result, dict):
+            raw_tc = real_result.get("token_confidence")
+            if isinstance(raw_tc, (int, float)) and not isinstance(raw_tc, bool):
+                try:
+                    token_confidence = float(raw_tc)
+                except (TypeError, ValueError):
+                    token_confidence = None
+        if token_confidence is not None:
             confidence_basis = "nominal_model_estimate"
-            conf = max(0.75, min(0.99, 0.75 + real_result.get("token_confidence", 0.0)))
+            conf = max(0.75, min(0.99, 0.75 + token_confidence))
         elif measured:
             confidence_basis = "measured_pixel_analysis"
             conf = 0.90
@@ -195,7 +209,7 @@ class OpticalSARFusionTool(ToolBase):
                 "source_model": "dofa",
                 "description": f"Optical spectral reflectance and chromatic texture features extracted via DOFA ViT-B (wavelengths: {opt_wls} \u00b5m).",
                 "wavelengths_um": opt_wls,
-                "modality": opt_env.modality,
+                "modality": opt_modality,
                 "image_id": opt_env.image_id
             },
             {
@@ -289,8 +303,11 @@ class OpticalSARFusionTool(ToolBase):
                 "confidence_basis": confidence_basis,
                 "slot": "S4",
                 "fine_tuned_fusion_head_present": has_trained_weights,
-                "inference_backend": "checkpoint" if real_result else "simulation",
-                "checkpoint_dir": real_result.get("checkpoint_dir") if real_result else str(checkpoint_dir) if checkpoint_dir else None,
-                "logits_shape": real_result.get("logits_shape") if real_result else None
+                "inference_backend": "checkpoint" if token_confidence is not None else "simulation",
+                "checkpoint_dir": (
+                    real_result.get("checkpoint_dir") if isinstance(real_result, dict)
+                    else (str(checkpoint_dir) if checkpoint_dir else None)
+                ),
+                "logits_shape": real_result.get("logits_shape") if isinstance(real_result, dict) else None
             }
         )

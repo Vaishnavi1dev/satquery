@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError as PydanticValidationError
 
 from app.config import load_app_config
 from app.storage.sandbox import StorageSandbox
@@ -39,19 +39,34 @@ def _save_envelope(session_id: str, envelope: ImageMetadataEnvelope):
 
 
 def _get_envelope(session_id: str, image_id: str) -> Optional[ImageMetadataEnvelope]:
-    key = f"{session_id}:{image_id}"
+    # Reject traversal outright (e.g. "..\\..\\other_session\\images\\id") rather
+    # than letting Path(...).name silently strip the directory components.
+    try:
+        clean_id = sandbox.sanitize_component(image_id, "image_id")
+    except ValueError:
+        return None
+
+    key = f"{session_id}:{clean_id}"
     if key in _ENVELOPE_CACHE:
         return _ENVELOPE_CACHE[key]
 
-    sdir = sandbox._get_session_dir(session_id)
-    meta_path = sdir / "images" / f"{image_id}.json"
-    if meta_path.exists():
+    try:
+        sdir = sandbox._get_session_dir(session_id)
+        images_dir = (sdir / "images").resolve()
+        meta_path = (images_dir / f"{clean_id}.json").resolve()
+        if not meta_path.is_relative_to(images_dir):
+            return None
+        if not meta_path.is_file():
+            return None
         with open(meta_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-            env = ImageMetadataEnvelope(**data)
-            _ENVELOPE_CACHE[key] = env
-            return env
-    return None
+        env = ImageMetadataEnvelope(**data)
+    except (ValueError, PydanticValidationError, OSError, json.JSONDecodeError):
+        # Missing file, malformed JSON, or valid JSON that is not an envelope.
+        return None
+
+    _ENVELOPE_CACHE[key] = env
+    return env
 
 
 # --- Request / Response Models ---
@@ -242,14 +257,14 @@ def execute_query(req: QueryRequest):
         return result
     except ValidationError as ve:
         raise HTTPException(status_code=422, detail={"code": ve.code, "message": ve.message})
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Internal server error while executing query.")
 
 
 @router.get("/evidence/{filename}")
 def download_evidence(filename: str, session_id: str = Query(...)):
     path = sandbox.get_evidence_path(session_id, filename)
-    if not path.exists():
+    if not path.is_file():
         raise HTTPException(status_code=404, detail=f"Evidence file '{filename}' not found.")
     media_type = "application/geo+json" if path.suffix == ".geojson" else "image/png"
     return FileResponse(path, media_type=media_type)
@@ -259,16 +274,18 @@ def download_evidence(filename: str, session_id: str = Query(...)):
 @router.get("/report/{filename}")
 def download_report(filename: str, session_id: str = Query(...)):
     path = sandbox.get_report_path(session_id, filename)
-    if not path.exists():
+    if not path.is_file():
         raise HTTPException(status_code=404, detail=f"Report file '{filename}' not found.")
     return FileResponse(path, media_type="text/html")
 
 
 @router.get("/trace/{trace_id}")
 def download_trace(trace_id: str, session_id: str = Query(...)):
-    sdir = sandbox._get_session_dir(session_id)
-    path = sdir / "traces" / f"{trace_id}.jsonl"
-    if not path.exists():
+    try:
+        path = sandbox.get_trace_path(session_id, trace_id)
+    except (ValueError, OSError):
+        raise HTTPException(status_code=404, detail=f"Trace '{trace_id}' not found.")
+    if not path.is_file():
         raise HTTPException(status_code=404, detail=f"Trace '{trace_id}' not found.")
     return FileResponse(path, media_type="application/x-jsonlines")
 

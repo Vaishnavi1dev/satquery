@@ -112,7 +112,7 @@ def _count_vessels(filepath: str, water_pct: float) -> Dict[str, Any]:
     low-backscatter (water) regions. Lightweight PIL + numpy only."""
     def _fallback() -> Dict[str, Any]:
         # No readable image -> no genuine cluster measurement, so report no count.
-        return {"count": 0, "box": None}
+        return {"count": None, "box": None}
 
     try:
         p = Path(filepath)
@@ -155,28 +155,34 @@ def _count_vessels(filepath: str, water_pct: float) -> Dict[str, Any]:
         min_px = max(2, int(0.02 * cell_area))
         occupied = cell_counts >= min_px
 
-        # Count distinct 8-connected clusters of occupied grid cells (pure Python)
+        # Count distinct 8-connected clusters of occupied grid cells (pure Python).
+        # Each cluster must cover a genuine minimum bright-pixel area; the reported
+        # value is the ACTUAL number of qualifying clusters (never clamped).
         visited = np.zeros((grid, grid), dtype=bool)
+        min_cluster_px = max(min_px, int(0.0005 * h * w))
         clusters = 0
         for i in range(grid):
             for j in range(grid):
                 if occupied[i, j] and not visited[i, j]:
-                    clusters += 1
                     stack = [(i, j)]
                     visited[i, j] = True
+                    cluster_px = 0
                     while stack:
                         ci, cj = stack.pop()
+                        cluster_px += int(cell_counts[ci, cj])
                         for di in (-1, 0, 1):
                             for dj in (-1, 0, 1):
                                 ni, nj = ci + di, cj + dj
                                 if 0 <= ni < grid and 0 <= nj < grid and occupied[ni, nj] and not visited[ni, nj]:
                                     visited[ni, nj] = True
                                     stack.append((ni, nj))
+                    if cluster_px >= min_cluster_px:
+                        clusters += 1
 
         if clusters == 0:
             return {"count": 0, "box": None}
 
-        count = max(3, min(14, clusters))
+        count = int(clusters)
 
         di, dj = np.unravel_index(int(np.argmax(cell_counts)), cell_counts.shape)
         x1 = int(dj * 512 / grid)
@@ -205,7 +211,9 @@ class SingleImageVQATool(ToolBase):
             raise ModelExecutionError("MDL_EMPTY_QUERY", "VQA query string cannot be empty.")
 
         envelope = inputs.get("envelope")
-        modality = getattr(envelope, "modality", None) or inputs.get("modality", "optical")
+        modality = self.normalize_modality(
+            getattr(envelope, "modality", None) or inputs.get("modality") or "optical"
+        )
         earthdial_key = self.runtime_mgr.earthdial_model_key_for([modality], self.model_key)
         self.runtime_mgr.ensure_model_loaded(earthdial_key, self.load_group)
         q_lower = query.lower()
@@ -260,37 +268,6 @@ class SingleImageVQATool(ToolBase):
         vessel_box_512: Optional[List[int]] = None
 
         if modality == "sar":
-            if any(k in q_lower for k in ["backscatter", "bright", "white", "intensity"]):
-                text = (
-                    "High radar backscatter (bright return in SAR VV/VH polarization) is observed primarily in the "
-                    "built-up urban sectors and metallic infrastructure, resulting from dihedral and corner double-bounce "
-                    "scattering. Calm water surfaces and smooth tarmac exhibit specular reflectance, appearing as dark, "
-                    "low-backscatter regions."
-                )
-            elif any(k in q_lower for k in ["water", "river", "lake", "ocean"]):
-                if has_water:
-                    text = (
-                        f"Yes, specular radar reflection indicates flat water surfaces appearing distinctly dark with "
-                        f"low backscatter situated in the {top_water_quad}. Water boundaries are "
-                        f"clearly delineated against adjacent higher-backscatter terrain."
-                    )
-                else:
-                    text = (
-                        "No open water bodies are detected in this SAR observation; the radar return is dominated by "
-                        "moderate, diffuse vegetative volume scattering and localized metallic double-bounce returns."
-                    )
-            elif any(k in q_lower for k in ["ship", "vessel", "boat", "anchorage", "navy", "naval"]):
-                text = (
-                    f"SAR analysis isolates high-intensity point-target backscatter returns consistent with metallic vessel hulls. "
-                    f"Dihedral corner reflections provide sharp contrast against the surrounding low-dielectric sea surface."
-                )
-            else:
-                text = (
-                    f"SAR radar inspection for query '{query}': Analysis of microwave backscatter returns confirms "
-                    f"a structured terrain profile with distinct dielectric contrast. The built-up segments produce high double-bounce returns "
-                    f"while natural vegetation exhibits diffuse volume scattering."
-                )
-        elif modality == "sar":
             if any(k in q_lower for k in ["backscatter", "bright", "white", "intensity"]):
                 text = (
                     "High radar backscatter (bright return in SAR VV/VH polarization) is observed primarily in the "
@@ -384,10 +361,10 @@ class SingleImageVQATool(ToolBase):
                 if envelope and getattr(envelope, "filepath", None):
                     count_info = _count_vessels(envelope.filepath, water_pct)
                 else:
-                    count_info = {"count": 0, "box": None}
-                vessel_count = int(count_info.get("count", 0))
+                    count_info = {"count": None, "box": None}
+                vessel_count = count_info.get("count")
                 vessel_box_512 = count_info.get("box")
-                if not maritime_evidence:
+                if vessel_count is not None and not maritime_evidence:
                     vessel_count = 0
                     vessel_box_512 = None
                 if vessel_box_512:
@@ -401,17 +378,19 @@ class SingleImageVQATool(ToolBase):
                     )
                 else:
                     vessel_region = top_water_quad
-                if vessel_count > 0:
+                if vessel_count is None:
+                    text = (
+                        "Vessel count unavailable for this input: the image could not be read, so no genuine "
+                        "bright-target cluster measurement could be performed."
+                    )
+                elif vessel_count > 0:
                     text = (
                         f"Identified and counted {vessel_count} cargo vessels docked in the port basin. "
                         f"The vessel concentration is highest in the {vessel_region}, where bright specular hull "
                         f"returns resolve against the surrounding low-backscatter water surface."
                     )
                 else:
-                    text = (
-                        "Identified and counted 0 cargo vessels in this image; no water body or maritime "
-                        "harbor infrastructure is present in this observation."
-                    )
+                    text = "No cargo vessels detected on the water."
 
             # 3. Maritime / Ships / Vessels / Ports
             elif any(re.search(rf"\b{k}\b", q_lower) for k in ["ship", "ships", "boat", "boats", "vessel", "vessels", "dock", "docks", "pier", "piers", "berth", "berths", "harbor", "harbour", "port", "ports", "anchorage", "navy", "naval"]):
@@ -540,8 +519,9 @@ class SingleImageVQATool(ToolBase):
                         + f"The {top_built_quad} displays organized structural boundaries, while the {top_veg_quad} exhibits continuous natural terrain."
                     )
 
-        if real_result and real_result.get("text"):
-            text = real_result["text"]
+        model_text = self.usable_model_text(real_result)
+        if model_text:
+            text = model_text
             conf = 0.90
             confidence_basis = "nominal_model_estimate"
         elif img_stats:
@@ -574,13 +554,18 @@ class SingleImageVQATool(ToolBase):
             y2 = max(0, min(orig_h, int(b[3] / 512.0 * orig_h)))
             return [x1, y1, x2, y2]
 
-        if vessel_box_512:
-            b_vessel = _scale_box(vessel_box_512)
-            predicted_boxes.append(b_vessel)
+        if vessel_count is not None:
+            b_vessel = _scale_box(vessel_box_512) if vessel_box_512 else None
+            if b_vessel is not None:
+                predicted_boxes.append(b_vessel)
             evidence_items.append({
                 "type": "vessel_count",
                 "source_model": "earthdial",
-                "description": f"Counted {vessel_count} cargo vessels in the port basin via bright-target pixel clustering.",
+                "description": (
+                    f"Counted {vessel_count} cargo vessels in the port basin via bright-target pixel clustering."
+                    if vessel_count > 0
+                    else "No cargo vessels detected on the water via bright-target pixel clustering."
+                ),
                 "method": "bright-target clustering heuristic",
                 "score": round(conf, 3) if conf is not None else None,
                 "modality": modality,
@@ -606,7 +591,10 @@ class SingleImageVQATool(ToolBase):
                 "confidence_basis": confidence_basis,
                 "slot": "S1",
                 "fine_tuned_weights_present": has_trained_weights,
-                "inference_backend": "checkpoint" if real_result else "simulation",
-                "checkpoint_dir": real_result.get("checkpoint_dir") if real_result else str(checkpoint_dir) if checkpoint_dir else None,
+                "inference_backend": "checkpoint" if model_text else "simulation",
+                "checkpoint_dir": (
+                    real_result.get("checkpoint_dir") if isinstance(real_result, dict)
+                    else (str(checkpoint_dir) if checkpoint_dir else None)
+                ),
             }
         )

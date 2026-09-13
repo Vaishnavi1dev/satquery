@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
 
 export default function BeforeAfterSlider({
   img1Url,
@@ -11,11 +11,34 @@ export default function BeforeAfterSlider({
   const [sliderPos, setSliderPos] = useState(50); // percentage 0..100
   const [isDragging, setIsDragging] = useState(false);
   const [showHeatmap, setShowHeatmap] = useState(false);
+  const [containerWidth, setContainerWidth] = useState(0);
   const containerRef = useRef(null);
+
+  useLayoutEffect(() => {
+    const node = containerRef.current;
+    if (!node) return undefined;
+    const measure = () => {
+      const width = node.getBoundingClientRect().width || node.clientWidth || 0;
+      setContainerWidth(width > 0 ? width : 0);
+    };
+    measure();
+    let observer = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(measure);
+      observer.observe(node);
+    } else {
+      window.addEventListener('resize', measure);
+    }
+    return () => {
+      if (observer) observer.disconnect();
+      else window.removeEventListener('resize', measure);
+    };
+  }, []);
 
   const handleMove = useCallback((clientX) => {
     if (!containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
+    if (rect.width <= 0) return;
     const x = clientX - rect.left;
     const pct = Math.max(0, Math.min(100, (x / rect.width) * 100));
     setSliderPos(pct);
@@ -159,7 +182,7 @@ export default function BeforeAfterSlider({
               position: 'absolute',
               top: 0,
               left: 0,
-              width: containerRef.current ? `${containerRef.current.clientWidth}px` : '100%',
+              width: containerWidth > 0 ? `${containerWidth}px` : '100%',
               maxWidth: 'none',
               height: '100%',
               objectFit: 'cover',

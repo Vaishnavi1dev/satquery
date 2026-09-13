@@ -1,4 +1,5 @@
 import uuid
+from urllib.parse import quote
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any, List, Optional
@@ -431,7 +432,10 @@ class ReportGenerator:
 
     def __init__(self, sandbox: StorageSandbox):
         self.sandbox = sandbox
-        self.jinja_env = jinja2.Environment(loader=jinja2.BaseLoader())
+        self.jinja_env = jinja2.Environment(
+            loader=jinja2.BaseLoader(),
+            autoescape=jinja2.select_autoescape(["html", "xml"]),
+        )
         self.template = self.jinja_env.from_string(REPORT_TEMPLATE)
 
     def generate_html_report(
@@ -452,7 +456,10 @@ class ReportGenerator:
         # Use relative link or data URL if evidence exists
         evidence_url = None
         if evidence_path and evidence_path.exists():
-            evidence_url = f"/api/evidence/{evidence_path.name}?session_id={session_id}"
+            evidence_url = (
+                f"/api/evidence/{quote(evidence_path.name)}"
+                f"?session_id={quote(str(session_id))}"
+            )
 
         html_content = self.template.render(
             report_id=rid,

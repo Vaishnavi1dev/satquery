@@ -69,69 +69,138 @@ export default function App() {
   const [isExecuting, setIsExecuting] = useState(false);
   const [executionResult, setExecutionResult] = useState(null);
   const [errorMessage, setErrorMessage] = useState(null);
+  const [validationPending, setValidationPending] = useState(false);
 
   const resultsRef = useRef(null);
+  const sessionIdRef = useRef(sessionId);
+  const requestTokenRef = useRef(0);
+  const executeAbortRef = useRef(null);
+  const validationRequestIdRef = useRef(0);
+
+  // Keep a synchronous mirror of the active session for post-await guards
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
+
+  // Abort any in-flight execute request and invalidate its late state writes
+  const invalidateInFlight = () => {
+    requestTokenRef.current += 1;
+    if (executeAbortRef.current) {
+      executeAbortRef.current.abort();
+      executeAbortRef.current = null;
+    }
+  };
 
   // Initialize Session and Backend Health
   useEffect(() => {
+    const controller = new AbortController();
+    let cancelled = false;
     async function init() {
       try {
-        const health = await api.getHealth();
-        if (health.status === 'HEALTHY') {
+        const health = await api.getHealth(controller.signal);
+        if (!cancelled && health.status === 'HEALTHY') {
           setSystemStatus('ONLINE');
         }
       } catch (err) {
+        if (cancelled || err.name === 'AbortError') return;
         console.warn('Backend offline:', err);
         setSystemStatus('OFFLINE');
       }
 
       try {
         const sessRes = await api.createSession();
+        if (cancelled) return;
+        sessionIdRef.current = sessRes.session_id;
         setSessionId(sessRes.session_id);
         const listRes = await api.listSessions();
-        if (listRes.sessions) {
+        if (!cancelled && listRes.sessions) {
           setSessions(listRes.sessions);
         }
       } catch (err) {
+        if (cancelled) return;
         console.error('Failed to init session:', err);
       }
     }
     init();
-  }, []);
-
-  // Auto-validate whenever active images or the query change (query changes debounced)
-  useEffect(() => {
-    let cancelled = false;
-    async function runValidation() {
-      if (sessionId && uploadedImages.length > 0) {
-        try {
-          const imageIds = uploadedImages.map((img) => img.image_id);
-          const valRes = await api.validateInputs(sessionId, imageIds, null, query.trim() || null);
-          if (!cancelled) setValidationResult(valRes);
-        } catch (err) {
-          if (!cancelled) setValidationResult({ valid: false, message: err.message });
-        }
-      } else {
-        setValidationResult(null);
-      }
-    }
-    const handle = setTimeout(runValidation, 300);
     return () => {
       cancelled = true;
+      controller.abort();
+    };
+  }, []);
+
+  // Auto-validate whenever active images or the query change (query changes debounced).
+  // Only the latest validation request may write; a newer request or an execute-derived
+  // invalidation bumps validationRequestIdRef so stale responses are ignored.
+  useEffect(() => {
+    if (!(sessionId && uploadedImages.length > 0)) {
+      validationRequestIdRef.current += 1;
+      setValidationResult(null);
+      setValidationPending(false);
+      return;
+    }
+
+    const requestId = validationRequestIdRef.current + 1;
+    validationRequestIdRef.current = requestId;
+    setValidationPending(true);
+
+    const handle = setTimeout(async () => {
+      try {
+        const imageIds = uploadedImages.map((img) => img.image_id);
+        const valRes = await api.validateInputs(sessionId, imageIds, null, query.trim() || null);
+        if (requestId === validationRequestIdRef.current) {
+          setValidationResult(valRes);
+          setValidationPending(false);
+        }
+      } catch (err) {
+        if (requestId === validationRequestIdRef.current) {
+          setValidationResult({ valid: false, message: err.message });
+          setValidationPending(false);
+        }
+      }
+    }, 300);
+
+    return () => {
       clearTimeout(handle);
     };
   }, [sessionId, uploadedImages, query]);
 
+  // Append envelopes while de-duplicating identical backend image_ids so
+  // slotImagesMap keys stay unique and duplicate React keys are avoided.
+  const appendUniqueImages = (prev, incoming) => {
+    const seen = new Set(prev.map((img) => img.image_id).filter(Boolean));
+    const unique = [];
+    for (const img of incoming) {
+      const id = img?.image_id;
+      if (id && seen.has(id)) continue;
+      if (id) seen.add(id);
+      unique.push(img);
+    }
+    return [...prev, ...unique];
+  };
+
   // Upload multiple files
   const handleUploadFiles = async (files) => {
+    if (!sessionIdRef.current) {
+      setErrorMessage('Workspace is still initializing — wait for a session before uploading.');
+      return;
+    }
+    const sessionAtStart = sessionIdRef.current;
     try {
       setErrorMessage(null);
       setIsUploading(true);
-      const res = await api.ingestImages(sessionId, files);
+      const res = await api.ingestImages(sessionAtStart, files);
+      // Discard responses that resolve after the user switched sessions.
+      if (sessionIdRef.current !== sessionAtStart) return;
+      const responseSession = res.session_id || sessionAtStart;
+      if (responseSession !== sessionAtStart) {
+        sessionIdRef.current = responseSession;
+        setSessionId(responseSession);
+      }
       if (res.images && res.images.length > 0) {
-        setUploadedImages((prev) => [...prev, ...res.images]);
+        setUploadedImages((prev) => appendUniqueImages(prev, res.images));
       }
     } catch (err) {
+      if (sessionIdRef.current !== sessionAtStart) return;
       setErrorMessage(`Upload failed: ${err.message}`);
     } finally {
       setIsUploading(false);
@@ -141,15 +210,18 @@ export default function App() {
   const handleLoadDemo = async (presetId) => {
     const demo = DEMO_CASES[presetId];
     if (!demo || isUploading || !sessionId) return;
+    const sessionAtStart = sessionId;
     try {
       setErrorMessage(null);
       setIsUploading(true);
       const files = await Promise.all(demo.files.map(([url, filename]) => loadSampleFile(url, filename)));
-      const res = await api.ingestImages(sessionId, files);
+      const res = await api.ingestImages(sessionAtStart, files);
+      if (sessionIdRef.current !== sessionAtStart) return;
       setUploadedImages(res.images || []);
       setQuery(demo.query);
       setExecutionResult(null);
     } catch (err) {
+      if (sessionIdRef.current !== sessionAtStart) return;
       setErrorMessage(`Demo load failed: ${err.message}`);
     } finally {
       setIsUploading(false);
@@ -167,30 +239,49 @@ export default function App() {
     if (uploadedImages.length === 0 || !query.trim() || isExecuting) return;
     if (validationResult && validationResult.valid === false) return;
 
+    const sessionAtStart = sessionIdRef.current;
+    const requestToken = requestTokenRef.current + 1;
+    requestTokenRef.current = requestToken;
+    if (executeAbortRef.current) executeAbortRef.current.abort();
+    const controller = new AbortController();
+    executeAbortRef.current = controller;
+
     try {
       setIsExecuting(true);
       setSystemStatus('BUSY');
       setErrorMessage(null);
 
       const imageIds = uploadedImages.map((img) => img.image_id);
-      const res = await api.executeQuery(sessionId, query.trim(), imageIds);
+      const res = await api.executeQuery(sessionAtStart, query.trim(), imageIds, {}, controller.signal);
+      if (requestToken !== requestTokenRef.current || sessionIdRef.current !== sessionAtStart) return;
       setExecutionResult(res);
 
       setTimeout(() => {
         resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 150);
     } catch (err) {
+      if (err.name === 'AbortError') return;
+      if (requestToken !== requestTokenRef.current || sessionIdRef.current !== sessionAtStart) return;
       setErrorMessage(`Execution error: ${err.message}`);
       if (err.status === 422) {
+        // Execute-derived invalidation must win over any late validation response.
+        validationRequestIdRef.current += 1;
+        setValidationPending(false);
         setValidationResult({ valid: false, message: err.message });
       }
     } finally {
-      setIsExecuting(false);
-      setSystemStatus('ONLINE');
+      if (requestToken === requestTokenRef.current) {
+        setIsExecuting(false);
+        setSystemStatus('ONLINE');
+      }
     }
   };
 
   const handleStartFresh = async () => {
+    invalidateInFlight();
+    sessionIdRef.current = '';
+    setSessionId('');
+    setValidationPending(false);
     try {
       setIsExecuting(false);
       setUploadedImages([]);
@@ -199,6 +290,7 @@ export default function App() {
       setValidationResult(null);
       setErrorMessage(null);
       const res = await api.createSession();
+      sessionIdRef.current = res.session_id;
       setSessionId(res.session_id);
       const listRes = await api.listSessions();
       if (listRes.sessions) setSessions(listRes.sessions);
@@ -211,10 +303,16 @@ export default function App() {
   const handleNewSession = handleStartFresh;
 
   const handleSelectSession = (sid) => {
+    invalidateInFlight();
+    sessionIdRef.current = sid;
     setSessionId(sid);
+    setIsExecuting(false);
+    setSystemStatus('ONLINE');
+    setValidationPending(false);
     setUploadedImages([]);
     setExecutionResult(null);
     setValidationResult(null);
+    setErrorMessage(null);
   };
 
   // Listen for hash navigation changes
@@ -356,6 +454,7 @@ export default function App() {
               onRemoveImage={handleRemoveImage}
               onStartFresh={handleStartFresh}
               isUploading={isUploading}
+              canUpload={!!sessionId}
             />
 
             {/* Vision-Language Query & Reasoning Panel */}
@@ -365,6 +464,7 @@ export default function App() {
                 onQueryChange={setQuery}
                 canExecute={uploadedImages.length > 0}
                 isExecuting={isExecuting}
+                isValidating={validationPending}
                 validationResult={validationResult}
                 onExecute={handleExecute}
               />

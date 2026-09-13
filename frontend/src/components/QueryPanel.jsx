@@ -16,13 +16,14 @@ export default function QueryPanel({
   onQueryChange,
   canExecute,
   isExecuting,
+  isValidating,
   validationResult,
   onExecute,
 }) {
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
-      if (canExecute && !isExecuting && validationResult?.valid !== false) {
+      if (canExecute && !isExecuting && !isValidating && validationResult?.valid !== false) {
         onExecute();
       }
     }
@@ -97,7 +98,7 @@ export default function QueryPanel({
         <button
           className="btn btn-primary"
           onClick={onExecute}
-          disabled={!canExecute || isExecuting || !query.trim() || validationResult?.valid === false}
+          disabled={!canExecute || isExecuting || isValidating || !query.trim() || validationResult?.valid === false}
           style={{ minWidth: '180px' }}
         >
           {isExecuting ? (

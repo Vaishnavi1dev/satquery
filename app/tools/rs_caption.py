@@ -40,9 +40,9 @@ def _correct_modality_claim(text: str, modality: str) -> str:
     """
     if not text or modality == "multispectral":
         return text
-    if not re.search(r"multi[-\s]?spectral", text, flags=re.IGNORECASE):
+    if not re.search(r"\bmulti[-\s]*spectral\b", text, flags=re.IGNORECASE):
         return text
-    cleaned = re.sub(r"multi[-\s]?spectral", "", text, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bmulti[-\s]*spectral\b", "", text, flags=re.IGNORECASE)
     cleaned = _normalize_modality_text(cleaned)
     prefix = f"Observation modality: {_modality_prefix_label(modality)}. "
     return (prefix + cleaned).strip()
@@ -58,7 +58,9 @@ class SingleImageCaptionTool(ToolBase):
         clean_params = self.validate_and_filter_params(parameters)
 
         envelope = inputs.get("envelope")
-        modality = getattr(envelope, "modality", None) or inputs.get("modality", "optical")
+        modality = self.normalize_modality(
+            getattr(envelope, "modality", None) or inputs.get("modality") or "optical"
+        )
         earthdial_key = self.runtime_mgr.earthdial_model_key_for([modality], self.model_key)
         self.runtime_mgr.ensure_model_loaded(earthdial_key, self.load_group)
 
@@ -100,8 +102,9 @@ class SingleImageCaptionTool(ToolBase):
 
         checkpoint_dir = self.runtime_mgr.get_checkpoint_dir(earthdial_key)
         has_trained_weights = checkpoint_dir is not None
-        if real_result and real_result.get("text"):
-            text = _correct_modality_claim(real_result["text"], modality)
+        model_text = self.usable_model_text(real_result)
+        if model_text:
+            text = _correct_modality_claim(model_text, modality)
             conf = 0.90
             confidence_basis = "nominal_model_estimate"
         else:
@@ -125,7 +128,10 @@ class SingleImageCaptionTool(ToolBase):
                 "slot": "S2",
                 "evidence_status": "unavailable",
                 "fine_tuned_weights_present": has_trained_weights,
-                "inference_backend": "checkpoint" if real_result else "simulation",
-                "checkpoint_dir": real_result.get("checkpoint_dir") if real_result else str(checkpoint_dir) if checkpoint_dir else None,
+                "inference_backend": "checkpoint" if model_text else "simulation",
+                "checkpoint_dir": (
+                    real_result.get("checkpoint_dir") if isinstance(real_result, dict)
+                    else (str(checkpoint_dir) if checkpoint_dir else None)
+                ),
             }
         )

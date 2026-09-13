@@ -275,3 +275,65 @@ def test_autonomous_modality_detection():
     assert svc.generic_sensor_label("multispectral") == "Multispectral"
     assert svc.generic_sensor_label("sar") == "SAR (radar)"
     assert svc.generic_sensor_label("unknown") is None
+
+
+def test_detect_modality_prioritizes_explicit_sar_evidence():
+    """Scene-content words must never override explicit SAR tokens or band count."""
+    svc = ImageIngestionService()
+
+    # Content words ('urban', 'water', 'rgb') previously forced optical.
+    assert svc.detect_modality("urban_planning_sar.tif", (256, 256, 3), {}) == "sar"
+    assert svc.detect_modality("water_reservoir_sentinel1.tif", (256, 256, 1), {}) == "sar"
+    assert svc.detect_modality("rgb_radar_scene.tif", (256, 256, 3), {}) == "sar"
+
+    # Unnamed single-band data is SAR by band-count consistency.
+    assert svc.detect_modality("scene.tif", (256, 256, 1), {}) == "sar"
+
+    # Sentinel-1 names with 1-2 bands are SAR.
+    assert svc.detect_modality("sentinel-1_scene.tif", (256, 256, 1), {}) == "sar"
+    assert svc.detect_modality("sentinel-1_scene.tif", (256, 256, 2), {}) == "sar"
+
+    # A genuine optical designator keeps single-band data optical.
+    assert svc.detect_modality("optical_panchromatic.tif", (256, 256, 1), {}) == "optical"
+
+
+def test_boxes_to_geojson_matches_evidence_by_region_not_index(tmp_path):
+    """Category/colour come from the evidence whose region equals the box."""
+    env = make_test_envelope(
+        tmp_path, "region_match", bounds=[78.400, 17.300, 78.500, 17.400], crs="EPSG:4326"
+    )
+    box_a = [20, 20, 100, 100]
+    box_b = [120, 120, 200, 200]
+    # Evidence deliberately in the opposite order to the boxes.
+    evidence = [
+        {"region": box_b, "type": "water_body", "label": "Water"},
+        {"region": box_a, "type": "built_up", "label": "Built"},
+    ]
+
+    geojson_data = boxes_to_geojson([box_a, box_b], env, evidence_items=evidence)
+    props = [feature["properties"] for feature in geojson_data["features"]]
+
+    assert props[0]["category"] == "built_up"
+    assert props[0]["label"] == "Built"
+    assert props[0]["color"] == "#f59e0b"
+    assert props[1]["category"] == "water_body"
+    assert props[1]["label"] == "Water"
+    assert props[1]["color"] == "#0284c7"
+
+
+def test_non_finite_bounds_and_boxes_are_rejected(tmp_path):
+    """NaN/Inf bounds or boxes must never reach geo_box strings or GeoJSON."""
+    nan_env = make_test_envelope(
+        tmp_path, "nan_bounds", bounds=[float("nan"), 17.3, 78.5, 17.4], crs="EPSG:4326"
+    )
+    assert pixel_box_to_geo([10, 10, 50, 50], nan_env) is None
+    assert boxes_to_geojson([[10, 10, 50, 50]], nan_env)["features"] == []
+
+    ok_env = make_test_envelope(
+        tmp_path, "ok_geo", bounds=[78.4, 17.3, 78.5, 17.4], crs="EPSG:4326"
+    )
+    assert pixel_box_to_geo([10, 10, float("inf"), 50], ok_env) is None
+    assert boxes_to_geojson([[10, 10, float("inf"), 50]], ok_env)["features"] == []
+    # A finite box alongside a malformed one survives; the malformed one is skipped.
+    mixed = boxes_to_geojson([[10, 10, 50, 50], [1, 1, float("nan"), 2]], ok_env)
+    assert len(mixed["features"]) == 1

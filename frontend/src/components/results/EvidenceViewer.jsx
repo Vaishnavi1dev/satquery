@@ -57,13 +57,11 @@ export default function EvidenceViewer({ result, slotImages, sessionId }) {
   let activeHighlightLabel = null;
   let activeHighlightGeo = null;
 
-  if (selectedEvidenceIndex !== null && evidenceList[selectedEvidenceIndex]) {
+  if (selectedEvidenceIndex !== null && evidenceList[selectedEvidenceIndex]?.region?.length === 4) {
     const item = evidenceList[selectedEvidenceIndex];
-    if (item.region && item.region.length === 4) {
-      activeHighlightBox = item.region;
-      activeHighlightLabel = item.description || item.category || item.type || 'Focused Region';
-      activeHighlightGeo = item.geo_coordinates;
-    }
+    activeHighlightBox = item.region;
+    activeHighlightLabel = item.description || item.category || item.type || 'Focused Region';
+    activeHighlightGeo = item.geo_coordinates;
   } else if (temporalEvents.length > 0 && temporalEvents[activeTransitionIndex]) {
     const ev = temporalEvents[activeTransitionIndex];
     if (ev.region && ev.region.length === 4) {
@@ -256,10 +254,17 @@ export default function EvidenceViewer({ result, slotImages, sessionId }) {
         )}
 
         {/* Text-only caption tasks intentionally have no localization boxes */}
+        {!['spectral', 'map', 'slider'].includes(activeTab) && result.task === 'caption' && (
+          <div className="evidence-caption-note">
+            Captioning is text-only — no localization overlay for this task.
+          </div>
+        )}
         {!['spectral', 'map', 'slider'].includes(activeTab) &&
-          (result.task === 'caption' || (boxes.length === 0 && temporalEvents.length === 0)) && (
+          result.task !== 'caption' &&
+          boxes.length === 0 &&
+          temporalEvents.length === 0 && (
             <div className="evidence-caption-note">
-              Captioning is text-only — no localization overlay for this task.
+              No localization reported for this task.
             </div>
           )}
         {/* Interactive SVG Focus Highlight Overlay */}
@@ -477,18 +482,27 @@ export default function EvidenceViewer({ result, slotImages, sessionId }) {
                       className="tag-pill mono"
                       style={{
                         fontSize: '0.68rem',
-                        color: ev.delta_pct >= 0 ? 'var(--success)' : 'var(--warning)',
+                        color:
+                          typeof ev.delta_pct === 'number'
+                            ? ev.delta_pct >= 0
+                              ? 'var(--success)'
+                              : 'var(--warning)'
+                            : 'var(--text-muted)',
                         background: 'rgba(0, 0, 0, 0.3)',
                       }}
                     >
-                      {ev.delta_pct >= 0 ? `+${ev.delta_pct}%` : `${ev.delta_pct}%`}
+                      {typeof ev.delta_pct === 'number'
+                        ? ev.delta_pct >= 0
+                          ? `+${ev.delta_pct}%`
+                          : `${ev.delta_pct}%`
+                        : 'N/A'}
                     </span>
                   </div>
                   <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', lineHeight: 1.3 }}>
                     {ev.category}
                   </div>
                   <div className="mono" style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: 'auto' }}>
-                    Confidence: {(ev.confidence * 100).toFixed(0)}%
+                    Confidence: {typeof ev.confidence === 'number' ? `${(ev.confidence * 100).toFixed(0)}%` : 'N/A'}
                   </div>
                 </div>
               );
@@ -518,6 +532,7 @@ export default function EvidenceViewer({ result, slotImages, sessionId }) {
           <div className="evidence-badge-list">
             {evidenceList.map((item, idx) => {
               const isSelected = selectedEvidenceIndex === idx;
+              const itemConfidence = item.confidence ?? item.score;
               return (
                 <div
                   key={idx}
@@ -536,9 +551,9 @@ export default function EvidenceViewer({ result, slotImages, sessionId }) {
                     <span className="evidence-item-type">
                       {item.type?.toUpperCase() || 'FEATURE'}
                     </span>
-                    {item.confidence && (
+                    {typeof itemConfidence === 'number' && (
                       <span className="tag-pill mono" style={{ color: 'var(--success)' }}>
-                        {(item.confidence * 100).toFixed(0)}%
+                        {(itemConfidence * 100).toFixed(0)}%
                       </span>
                     )}
                   </div>

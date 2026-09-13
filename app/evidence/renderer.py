@@ -148,8 +148,8 @@ class EvidenceRenderer:
 
         # Highlight change boxes on T2
         if change_boxes:
-            scale_x = w2 / float(env_t2.width)
-            scale_y = target_h / float(env_t2.height)
+            scale_x = w2 / float(max(1, env_t2.width))
+            scale_y = target_h / float(max(1, env_t2.height))
 
             for box in change_boxes:
                 if len(box) == 4:
@@ -197,6 +197,42 @@ class EvidenceRenderer:
         draw.text((16, 12), opt_label, fill=(0, 240, 255))
         draw.text((w_opt + 32, 12), f"Synthetic Aperture Radar Backscatter (SAR)", fill=(180, 130, 255))
 
+        # Overlay caller-supplied boxes on the optical panel (same style as
+        # render_bounding_boxes), skipping malformed entries.
+        if boxes:
+            o_w = r_opt.size[0]
+            scale_x = o_w / float(max(1, opt_env.width))
+            scale_y = target_h / float(max(1, opt_env.height))
+            palette = [
+                ((0, 240, 255, 240), (0, 240, 255, 45), (0, 180, 200, 220)),
+                ((16, 185, 129, 240), (16, 185, 129, 45), (16, 150, 100, 220)),
+                ((245, 158, 11, 240), (245, 158, 11, 45), (200, 130, 10, 220)),
+                ((168, 85, 247, 240), (168, 85, 247, 45), (140, 70, 210, 220)),
+            ]
+            overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+            odraw = ImageDraw.Draw(overlay)
+            for idx, box in enumerate(boxes):
+                if len(box) != 4:
+                    continue
+                x1 = int(box[0] * scale_x)
+                y1 = int(box[1] * scale_y) + 40
+                x2 = int(box[2] * scale_x)
+                y2 = int(box[3] * scale_y) + 40
+                x_min = max(0, min(o_w - 1, min(x1, x2)))
+                x_max = max(0, min(o_w - 1, max(x1, x2)))
+                y_min = max(40, min(40 + target_h - 1, min(y1, y2)))
+                y_max = max(40, min(40 + target_h - 1, max(y1, y2)))
+                if x_max <= x_min or y_max <= y_min:
+                    continue
+                stroke_color, fill_color, badge_color = palette[idx % len(palette)]
+                odraw.rectangle([x_min, y_min, x_max, y_max], outline=stroke_color, width=3, fill=fill_color)
+                badge_h = min(22, max(14, int(target_h * 0.08)))
+                badge_w = min(180, max(50, x_max - x_min))
+                b_top = max(40, y_min - badge_h) if (y_min - 40) >= badge_h else y_min
+                odraw.rectangle([x_min, b_top, x_min + badge_w, b_top + badge_h], fill=badge_color)
+                odraw.text((x_min + 4, b_top + 2), "Fusion Target", fill=(10, 15, 25, 255))
+            canvas = Image.alpha_composite(canvas.convert("RGBA"), overlay).convert("RGB")
+
         dest_path = self.sandbox.get_evidence_path(session_id, f"evidence_fusion_{opt_env.image_id}__{sar_env.image_id}.png")
         dest_path.parent.mkdir(parents=True, exist_ok=True)
         canvas.save(dest_path, format="PNG")
@@ -230,16 +266,17 @@ class EvidenceRenderer:
             if idx > 0:
                 draw.text((curr_x - 12, 50 + target_h // 2 - 10), "→", fill=(255, 255, 255))
 
-            if boxes and (idx - 1) < len(boxes) and idx > 0:
+            if boxes and idx > 0 and (idx - 1) < len(boxes):
                 box = boxes[idx - 1]
-                scale_x = img.width / float(env.width)
-                scale_y = target_h / float(env.height)
-                bx1 = int(box[0] * scale_x) + curr_x
-                by1 = int(box[1] * scale_y) + 50
-                bx2 = int(box[2] * scale_x) + curr_x
-                by2 = int(box[3] * scale_y) + 50
-                draw.rectangle([bx1, by1, bx2, by2], outline=(255, 80, 80), width=3)
-                draw.text((bx1 + 4, by1 + 4), f"Δ Event T{idx}→T{idx+1}", fill=(255, 100, 100))
+                if len(box) == 4:
+                    scale_x = img.width / float(max(1, env.width))
+                    scale_y = target_h / float(max(1, env.height))
+                    bx1 = int(box[0] * scale_x) + curr_x
+                    by1 = int(box[1] * scale_y) + 50
+                    bx2 = int(box[2] * scale_x) + curr_x
+                    by2 = int(box[3] * scale_y) + 50
+                    draw.rectangle([bx1, by1, bx2, by2], outline=(255, 80, 80), width=3)
+                    draw.text((bx1 + 4, by1 + 4), f"Δ Event T{idx}→T{idx+1}", fill=(255, 100, 100))
 
             curr_x += img.width + 16
 

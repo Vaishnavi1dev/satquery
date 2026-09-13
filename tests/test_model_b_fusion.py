@@ -25,7 +25,7 @@ except ImportError:
     nn = None
 
 from training.dofa.prepare_dofa_pairs import download_and_prepare_dofa_pairs, SENSOR_WAVELENGTHS
-from app.runtime.manager import ModelRuntimeManager
+from app.runtime.manager import ModelRuntimeManager, ModelExecutionError
 from app.tools.opt_sar_fusion import OpticalSARFusionTool
 from app.data.ingestion import ImageMetadataEnvelope
 
@@ -235,3 +235,39 @@ def test_optical_sar_fusion_tool_integration(tmp_path):
         assert out_missing.metadata[key] is None
     assert "db" not in out_missing.text.lower()
     assert "decibel" not in out_missing.text.lower()
+
+
+def test_optical_sar_fusion_rejects_more_than_two_images(tmp_path):
+    """Only a genuine two-image pair is a valid joint-use request."""
+    tool = _fusion_tool()
+    opt_path, sar_path = _write_fusion_images(tmp_path)
+    opt_env = _make_fusion_envelope("img_opt_x", "optical", opt_path)
+    sar_env = _make_fusion_envelope("img_sar_x", "sar", sar_path)
+    with pytest.raises(ModelExecutionError) as exc:
+        tool.invoke(
+            inputs={"images": [opt_env, sar_env, sar_env], "query": "identify built-up and water regions"},
+            parameters={"max_new_tokens": 16},
+        )
+    assert exc.value.code == "MDL_JOINT_USE_VIOLATION"
+
+
+def test_optical_sar_fusion_unusable_token_confidence_falls_back(tmp_path):
+    """A None/string token_confidence must not crash and must fall back to the measurement."""
+    tool = _fusion_tool()
+    opt_path, sar_path = _write_fusion_images(tmp_path)
+    opt_env = _make_fusion_envelope("img_opt_tc", "optical", opt_path)
+    sar_env = _make_fusion_envelope("img_sar_tc", "sar", sar_path)
+
+    tool.runtime_mgr.ensure_model_loaded = lambda *a, **k: None
+    tool.runtime_mgr.get_checkpoint_dir = lambda *a, **k: None
+    tool.runtime_mgr.run_dofa_fusion = lambda *a, **k: {
+        "token_confidence": None, "checkpoint_dir": "ckpt", "logits_shape": [1, 196, 1000]
+    }
+    out = tool.invoke(
+        inputs={"images": [opt_env, sar_env], "query": "identify built-up and water regions"},
+        parameters={"max_new_tokens": 16},
+    )
+    assert out.confidence == 0.90
+    assert out.metadata["confidence_basis"] == "measured_pixel_analysis"
+    assert out.metadata["inference_backend"] == "simulation"
+
